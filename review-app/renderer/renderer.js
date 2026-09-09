@@ -4,6 +4,10 @@
 // Save/Approve/navigate) rather than synced into state on every keystroke,
 // so typing doesn't trigger a full-tree rebuild.
 
+const DEFAULT_IMAGE_PANE_WIDTH = 480;
+const MIN_IMAGE_PANE_WIDTH = 240;
+const MIN_FORM_PANE_WIDTH = 280;
+
 const state = {
   settings: null,
   schema: null, // {CMS1500:{fields,required}, UB04:{...}} | null
@@ -18,6 +22,7 @@ const state = {
   org: null,
   orgStatus: null,
   orgSeededNotice: false,
+  workspaceCorrectedNotice: null,
   pythonCheck: null, // {ok, version} | {ok:false, error} | null (checking)
 };
 
@@ -84,6 +89,7 @@ function renderRail() {
         <div class="bm-choose-folder-wrap">
           <button class="bm-btn bm-btn-reversed bm-btn-block bm-btn-sm" id="choose-folder-btn">${ICONS.folder} ${state.settings?.workspaceFolder ? "Change workspace" : "Choose workspace"}</button>
           <div class="bm-rail-path-row"><div class="bm-rail-path">${state.settings?.workspaceFolder ? escapeHtml(state.settings.workspaceFolder) : "No workspace chosen"}</div></div>
+          <div class="bm-rail-hint">Pick the same folder BillOCR Intake writes to (the one <em>containing</em> pending_review/, not pending_review itself).</div>
         </div>
         <div class="bm-rail-label-row"><span class="bm-rail-label">Navigate</span></div>
         <div class="bm-folder-nav-list">
@@ -100,7 +106,7 @@ function renderRail() {
       </div>
       <div class="bm-rail-footer">
         <div class="bm-rail-footer-row"><span>Approved</span><span>${state.counts.approved}</span></div>
-        <div class="bm-rail-footer-row"><span>Built .837</span><span>${state.counts.output}</span></div>
+        <div class="bm-rail-footer-row"><span>Built .txt</span><span>${state.counts.output}</span></div>
       </div>
     </div>
   `);
@@ -121,10 +127,17 @@ async function switchView(view) {
 
 // --- Queue view ----------------------------------------------------------
 
-function claimBadge(summary) {
-  const n = (summary.missing_required_fields || []).length;
-  if (n === 0) return `<span class="rv-badge rv-badge-ok">Ready</span>`;
-  return `<span class="rv-badge rv-badge-missing">${n} missing</span>`;
+function claimBadges(summary) {
+  const missingCount = (summary.missing_required_fields || []).length;
+  const flaggedCount = summary.flagged_count || 0;
+  const badges = [];
+  badges.push(
+    missingCount === 0
+      ? `<span class="rv-badge rv-badge-ok">Ready</span>`
+      : `<span class="rv-badge rv-badge-missing">${missingCount} missing</span>`
+  );
+  if (flaggedCount > 0) badges.push(`<span class="rv-badge rv-badge-flagged">${flaggedCount} flagged</span>`);
+  return badges.join(" ");
 }
 
 function renderQueueView() {
@@ -133,6 +146,8 @@ function renderQueueView() {
     return el(`
       <div class="rv-main">
         <div class="rv-main-header"><div class="rv-main-title">Review Queue</div></div>
+        ${state.workspaceCorrectedNotice ? `<div class="rv-review-warning">${escapeHtml(state.workspaceCorrectedNotice)}</div>` : ""}
+        ${schemaWarningBanner()}
         <div class="rv-empty">
           <div class="rv-empty-title">Nothing waiting for review</div>
           <div>New claims extracted by BillOCR Intake will show up here.</div>
@@ -146,6 +161,7 @@ function renderQueueView() {
         <div class="rv-main-title">Review Queue</div>
         <div class="rv-main-sub">${state.pendingList.length} pending</div>
       </div>
+      ${state.workspaceCorrectedNotice ? `<div class="rv-review-warning">${escapeHtml(state.workspaceCorrectedNotice)}</div>` : ""}
       ${schemaWarningBanner()}
       <div class="rv-queue-list">
         ${state.pendingList
@@ -155,7 +171,7 @@ function renderQueueView() {
             <div class="rv-claim-name">${escapeHtml(c.patient_name || c.claim_id)}</div>
             <div class="rv-claim-meta">${escapeHtml(c.form_type)}</div>
             <div class="rv-claim-charge">${c.total_charge != null ? "$" + c.total_charge : "—"}</div>
-            <div>${claimBadge(c)}</div>
+            <div class="rv-claim-badges">${claimBadges(c)}</div>
             <div class="rv-claim-meta">${escapeHtml(c.extracted_at || "")}</div>
           </div>`
           )
@@ -184,6 +200,9 @@ async function onChooseWorkspace() {
   const result = await window.api.chooseWorkspace();
   state.settings = await window.api.getSettings();
   if (result.orgSeeded) state.orgSeededNotice = true;
+  state.workspaceCorrectedNotice = result.correctedFrom
+    ? `You picked "${result.correctedFrom}" — using its parent folder as the workspace instead, since that's the one containing pending_review/, approved/, etc.`
+    : null;
   await loadQueue();
   render();
 }
@@ -354,6 +373,7 @@ function renderReviewView() {
   const { record, imagePath } = state.currentClaim;
   const fieldSpecs = state.schema?.[record.form_type]?.fields || {};
   const missing = new Set(record.missing_required_fields || []);
+  const flagged = record.flagged_fields || {};
   const fields = record.fields || {};
 
   const formRows = Object.keys(fieldSpecs)
@@ -363,14 +383,19 @@ function renderReviewView() {
       const isArr = isArrayField(desc);
       const value = fields[key];
       const isMissing = missing.has(key);
+      const flagEntries = flagged[key];
       const inputHtml = isArr
         ? `<textarea id="field-${key}" rows="3">${escapeHtml(JSON.stringify(value ?? [], null, 2))}</textarea>`
         : `<input class="bm-input" id="field-${key}" value="${escapeAttr(value == null ? "" : value)}" />`;
+      const flagHtml = flagEntries
+        ? `<span class="rv-field-flag-reason">⚠ ${escapeHtml(flagEntries.map((e) => e.reason).join("; "))}</span>`
+        : "";
       return `
-        <div class="bm-field rv-field ${isMissing ? "missing" : ""}">
+        <div class="bm-field rv-field ${isMissing ? "missing" : ""} ${flagEntries ? "flagged" : ""}">
           <span class="bm-field-label">${escapeHtml(key)}${isMissing ? " — required" : ""}</span>
           ${inputHtml}
           <span class="rv-field-hint">${escapeHtml(desc)}</span>
+          ${flagHtml}
         </div>`;
     })
     .join("");
@@ -389,10 +414,21 @@ function renderReviewView() {
         ${schemaWarningBanner()}
         ${state.reviewError ? `<div class="rv-review-warning">${escapeHtml(state.reviewError)}</div>` : ""}
         ${record.used_thinking_fallback ? `<div class="rv-review-warning">Recovered from the model's "thinking" field — double-check every value against the image.</div>` : ""}
-        <div class="rv-review-layout">
-          <div class="rv-review-image-pane" id="image-pane">
-            ${imagePath ? `<img src="file://${encodeURI(imagePath)}" alt="Source scan" />` : "<span>No image</span>"}
+        <div class="rv-review-layout" id="review-layout">
+          <div class="rv-review-image-pane" id="image-pane" style="width: ${state.settings?.imagePaneWidth || DEFAULT_IMAGE_PANE_WIDTH}px">
+            ${
+              imagePath
+                ? `<img id="claim-image" src="file://${encodeURI(imagePath)}" alt="Source scan" draggable="false" />
+                   <div class="rv-zoom-controls">
+                     <button class="rv-zoom-btn" id="zoom-out" title="Zoom out">&minus;</button>
+                     <button class="rv-zoom-btn rv-zoom-label" id="zoom-reset" title="Reset to fit">Fit</button>
+                     <button class="rv-zoom-btn" id="zoom-in" title="Zoom in">+</button>
+                     <button class="rv-zoom-btn" id="open-image" title="Open image file">${ICONS.folder}</button>
+                   </div>`
+                : "<span>No image</span>"
+            }
           </div>
+          <div class="rv-resize-handle" id="resize-handle" title="Drag to resize"></div>
           <div class="rv-review-form-pane">${formRows}</div>
         </div>
         <div class="rv-review-actions">
@@ -412,10 +448,130 @@ function renderReviewView() {
   main.querySelector("#save-claim").addEventListener("click", doSave);
   main.querySelector("#discard-claim").addEventListener("click", doDiscard);
   main.querySelector("#approve-claim").addEventListener("click", doApprove);
-  const imgEl = main.querySelector("#image-pane img");
-  if (imgEl) imgEl.addEventListener("click", () => imagePath && window.api.openFolder(imagePath));
+
+  wireImagePane(main, imagePath);
+  wireResizeHandle(main);
 
   return main;
+}
+
+// Zoom + pan + resize for the review image, all direct DOM manipulation
+// (not going through state/render()) so dragging/scrolling stays smooth
+// and doesn't fight a full-tree rebuild mid-gesture. Zoom resets naturally
+// every time this view is rebuilt (new claim, Prev/Next, Save, ...) since
+// it lives only on the DOM node, not in `state`.
+function wireImagePane(root, imagePath) {
+  const pane = root.querySelector("#image-pane");
+  const img = root.querySelector("#claim-image");
+  if (!pane || !img) return;
+
+  const zoomLabel = root.querySelector("#zoom-reset");
+  let zoom = 1; // 1 == "fit" (CSS object-fit: contain, no inline size)
+
+  const applyZoom = (next) => {
+    zoom = Math.max(1, Math.min(6, next));
+    if (zoom === 1) {
+      img.style.maxWidth = "";
+      img.style.maxHeight = "";
+      img.style.width = "";
+      img.style.height = "";
+      pane.classList.remove("zoomed");
+      zoomLabel.textContent = "Fit";
+    } else {
+      if (!img.dataset.baseWidth) img.dataset.baseWidth = String(img.getBoundingClientRect().width);
+      const base = Number(img.dataset.baseWidth);
+      img.style.maxWidth = "none";
+      img.style.maxHeight = "none";
+      img.style.width = `${base * zoom}px`;
+      img.style.height = "auto";
+      pane.classList.add("zoomed");
+      zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+    }
+  };
+
+  root.querySelector("#zoom-in").addEventListener("click", () => applyZoom(zoom * 1.25));
+  root.querySelector("#zoom-out").addEventListener("click", () => applyZoom(zoom / 1.25));
+  zoomLabel.addEventListener("click", () => applyZoom(1));
+  const openBtn = root.querySelector("#open-image");
+  if (openBtn) openBtn.addEventListener("click", () => imagePath && window.api.openFolder(imagePath));
+  // The toolbar sits inside the pane -- without this, a click on any of its
+  // buttons bubbles up to the pane's own click-to-zoom handler below.
+  root.querySelector(".rv-zoom-controls")?.addEventListener("click", (e) => e.stopPropagation());
+
+  // Click to zoom in (matches the "zoom-in" cursor shown at fit); dragging
+  // to pan takes over via pointerdown once zoomed, below.
+  pane.addEventListener("click", () => {
+    if (zoom === 1) applyZoom(2);
+  });
+
+  pane.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      applyZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+    },
+    { passive: false }
+  );
+
+  // Single click (at fit) zooms in; double-click always resets back to fit
+  // regardless of current zoom, rather than the two gestures fighting over
+  // what "toggle" means.
+  img.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    applyZoom(1);
+  });
+
+  // Drag-to-pan once zoomed in -- pointer capture keeps move/up events
+  // targeting `pane` even if the cursor leaves it mid-drag, and needs no
+  // cleanup: it's released automatically when the pane is removed from the
+  // DOM on the next render.
+  pane.addEventListener("pointerdown", (e) => {
+    if (zoom <= 1) return;
+    pane.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = pane.scrollLeft;
+    const startTop = pane.scrollTop;
+    pane.classList.add("panning");
+    const onMove = (ev) => {
+      pane.scrollLeft = startLeft - (ev.clientX - startX);
+      pane.scrollTop = startTop - (ev.clientY - startY);
+    };
+    const onUp = () => {
+      pane.removeEventListener("pointermove", onMove);
+      pane.removeEventListener("pointerup", onUp);
+      pane.classList.remove("panning");
+    };
+    pane.addEventListener("pointermove", onMove);
+    pane.addEventListener("pointerup", onUp);
+  });
+}
+
+function wireResizeHandle(root) {
+  const handle = root.querySelector("#resize-handle");
+  const layout = root.querySelector("#review-layout");
+  const imagePane = root.querySelector("#image-pane");
+  if (!handle || !layout || !imagePane) return;
+
+  handle.addEventListener("pointerdown", (e) => {
+    handle.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startWidth = imagePane.getBoundingClientRect().width;
+    const maxWidth = layout.getBoundingClientRect().width - MIN_FORM_PANE_WIDTH - handle.getBoundingClientRect().width;
+    handle.classList.add("dragging");
+    const onMove = (ev) => {
+      const next = Math.max(MIN_IMAGE_PANE_WIDTH, Math.min(maxWidth, startWidth + (ev.clientX - startX)));
+      imagePane.style.width = `${next}px`;
+    };
+    const onUp = async () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.classList.remove("dragging");
+      state.settings = await window.api.setSettings({ imagePaneWidth: Math.round(imagePane.getBoundingClientRect().width) });
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+  });
 }
 
 // --- Organization settings view ---------------------------------------------
@@ -543,7 +699,7 @@ function renderAboutView() {
         <div class="rv-main-title">BillOCR Review</div>
         <div class="rv-main-sub" id="about-version"></div>
         <p>Reviews claims extracted by BillOCR Intake, and builds X12 837I/837P files on approval.</p>
-        <p>A person reviews every claim before it becomes a .837 file — nothing here auto-approves anything.</p>
+        <p>A person reviews every claim before it becomes a finished 837 (.txt) file — nothing here auto-approves anything.</p>
       </div>
     </div>
   `);
@@ -558,6 +714,17 @@ function renderAboutView() {
 
 function render() {
   const app = document.getElementById("app");
+
+  // Same full teardown/rebuild as Intake's renderer -- preserve scroll and
+  // focus across it (e.g. Save/Approve re-render while the form pane is
+  // scrolled, or a field still has focus) rather than resetting to the top.
+  const prevScrollEl = document.querySelector(".rv-main");
+  const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : 0;
+  const active = document.activeElement;
+  const focusId = active && active.id && app.contains(active) ? active.id : null;
+  const selection =
+    focusId && typeof active.selectionStart === "number" ? { start: active.selectionStart, end: active.selectionEnd } : null;
+
   app.innerHTML = "";
   const frag = document.createDocumentFragment();
   frag.appendChild(renderTitlebar());
@@ -571,6 +738,18 @@ function render() {
   body.appendChild(main);
   frag.appendChild(body);
   app.appendChild(frag);
+
+  const newScrollEl = document.querySelector(".rv-main");
+  if (newScrollEl) newScrollEl.scrollTop = prevScrollTop;
+  if (focusId) {
+    const restored = document.getElementById(focusId);
+    if (restored) {
+      restored.focus();
+      if (selection && typeof restored.setSelectionRange === "function") {
+        restored.setSelectionRange(selection.start, selection.end);
+      }
+    }
+  }
 }
 
 (async function init() {

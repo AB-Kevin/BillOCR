@@ -13,7 +13,7 @@
 /* ---- Queue list ---- */
 .rv-queue-list { display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--border-hairline); border-radius: var(--radius-control); overflow: hidden; }
 .rv-claim-row {
-  display: grid; grid-template-columns: 1fr 110px 110px 140px 150px; gap: var(--space-3); align-items: center;
+  display: grid; grid-template-columns: 1fr 110px 110px 210px 150px; gap: var(--space-3); align-items: center;
   padding: var(--space-3) var(--space-4); background: var(--surface-card); cursor: pointer;
   border-bottom: 1px solid var(--border-hairline);
 }
@@ -22,26 +22,68 @@
 .rv-claim-name { font-size: 13px; color: var(--text-body); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-claim-meta { font-family: var(--font-condensed); font-size: 12px; color: var(--text-caption); }
 .rv-claim-charge { font-family: var(--font-condensed); font-size: 12px; color: var(--text-body); font-variant-numeric: tabular-nums; }
-.rv-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
+.rv-claim-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.rv-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 .rv-badge-missing { background: #f6e9e6; color: #9c4a3d; }
 .rv-badge-ok { background: var(--green-100); color: var(--accent-text); }
+.rv-badge-flagged { background: #fff3cd; color: #8a6415; }
 
 /* ---- Review layout (image + editable field form) ---- */
 .rv-review { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--space-4); }
 .rv-review-topbar { display: flex; align-items: center; gap: var(--space-3); }
 .rv-review-counter { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); }
 .rv-review-nav { display: flex; gap: var(--space-2); margin-left: auto; }
-.rv-review-layout { flex: 1; min-height: 0; display: flex; gap: var(--space-5); }
+.rv-review-layout { flex: 1; min-height: 0; display: flex; }
 .rv-review-image-pane {
-  flex: 0 0 420px; background: var(--surface-card-alt); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);
-  display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: zoom-in;
+  flex: 0 0 auto; /* width set inline from the settings-remembered value / live during a resize drag */
+  position: relative; background: var(--surface-card-alt); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);
+  display: flex; align-items: center; justify-content: center; overflow: auto; cursor: zoom-in;
 }
-.rv-review-image-pane img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.rv-review-form-pane { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding-right: 4px; }
+.rv-review-image-pane.zoomed { cursor: grab; }
+.rv-review-image-pane.zoomed.panning { cursor: grabbing; }
+.rv-review-image-pane img { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; }
+
+/* ---- Resize handle between the image pane and the field form ----
+   Same "wide invisible hit target, thin visible line" trick styles.css's
+   own .bm-col-resize uses for list-view column resizing. */
+.rv-resize-handle { flex: 0 0 14px; cursor: col-resize; position: relative; }
+.rv-resize-handle::after {
+  content: ""; position: absolute; top: 4px; bottom: 4px; left: 50%; width: 2px; margin-left: -1px;
+  background: var(--border-hairline); border-radius: 2px;
+}
+.rv-resize-handle:hover::after, .rv-resize-handle.dragging::after { background: var(--accent-text); width: 3px; margin-left: -1.5px; }
+
+/* ---- Zoom controls overlay (bottom-right of the image pane) ---- */
+.rv-zoom-controls {
+  position: absolute; bottom: var(--space-3); right: var(--space-3); z-index: 1;
+  display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px;
+  background: rgba(35, 31, 32, 0.72); backdrop-filter: blur(2px);
+}
+.rv-zoom-btn {
+  border: none; background: none; color: #fff; cursor: pointer; font-size: 15px; line-height: 1;
+  width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  transition: background var(--motion-fast);
+}
+.rv-zoom-btn:hover { background: rgba(255, 255, 255, 0.18); }
+.rv-zoom-label { width: auto; padding: 0 8px; font-size: 11px; font-family: var(--font-condensed); letter-spacing: var(--tracking-label); }
+
+.rv-review-form-pane { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding-left: var(--space-4); padding-right: 4px; }
 .rv-review-warning { background: #f6e9e6; color: #9c4a3d; border-radius: var(--radius-control); padding: var(--space-3) var(--space-4); font-size: 12.5px; line-height: 1.5; }
 .rv-field-hint { font-size: 11.5px; color: var(--text-caption); line-height: 1.4; }
 .rv-field.missing .bm-input,
 .rv-field.missing textarea { border-color: #9c4a3d; background: #fdf4f2; }
+/* Amber for "flagged" (disagreed across verification passes / failed a
+   validation check) -- a lower-severity signal than "missing", and the
+   two are independent: a field can be both (missing takes the red
+   treatment above since that rule comes second in the cascade... actually
+   .flagged is defined after .missing here, so give .missing.flagged the
+   red treatment explicitly to make the precedence intentional rather than
+   accidental on source order). */
+.rv-field.flagged .bm-input,
+.rv-field.flagged textarea { border-color: #a67c00; background: #fffbea; }
+.rv-field.missing.flagged .bm-input,
+.rv-field.missing.flagged textarea { border-color: #9c4a3d; background: #fdf4f2; }
+.rv-field-flag-reason { font-size: 11.5px; color: #8a6415; line-height: 1.4; }
 .rv-field textarea {
   border: 1px solid var(--border-hairline); border-radius: var(--radius-control); background: var(--surface-card);
   color: var(--text-body); font-size: 12.5px; font-family: "SF Mono", "Consolas", monospace; padding: 8px 10px;

@@ -87,7 +87,8 @@ def build_logger(name: str, log_file: Optional[str]) -> logging.Logger:
     return logger
 
 
-def chat_with_thinking_fallback(client, model: str, messages: list, keep_alive, response_format: Optional[str] = None):
+def chat_with_thinking_fallback(client, model: str, messages: list, keep_alive, response_format: Optional[str] = None,
+                                 options: Optional[dict] = None):
     """
     Call Ollama chat() and return (content, used_thinking_fallback).
     Some Qwen3-VL builds route the answer entirely into `message.thinking`
@@ -99,10 +100,17 @@ def chat_with_thinking_fallback(client, model: str, messages: list, keep_alive, 
     Pass format="json" to ask Ollama to constrain output to valid JSON
     syntax (supported by the /api/chat "format" parameter) -- useful for
     the claim field extractor, irrelevant for plain transcription.
+
+    Pass options={"temperature": ...} etc. to override Ollama's default
+    sampling for this call -- used by extract_claim_fields.py's
+    verification passes, which want higher-temperature resamples of the
+    same image to check against the (default-temperature) primary read.
     """
     kwargs = dict(model=model, messages=messages, keep_alive=keep_alive, think=False)
     if response_format:
         kwargs["format"] = response_format
+    if options:
+        kwargs["options"] = options
     response = client.chat(**kwargs)
     message = response.get("message", {}) or {}
     content = (message.get("content") or "").strip()

@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("api", {
 
   checkPython: (pythonPath) => ipcRenderer.invoke("python-check", pythonPath),
   checkOllama: (host) => ipcRenderer.invoke("ollama-check", host),
+  stopModelNow: (host, model) => ipcRenderer.invoke("ollama-stop-model", { host, model }),
   pendingCount: () => ipcRenderer.invoke("pending-count"),
 
   openFolder: (folderPath) => ipcRenderer.invoke("shell-open-folder", folderPath),

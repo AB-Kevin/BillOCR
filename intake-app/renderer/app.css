@@ -53,3 +53,8 @@
   background: #f6e9e6; color: #9c4a3d; border: 1px solid #e3c3bb; border-radius: var(--radius-control);
   padding: var(--space-3) var(--space-4); font-size: 13px; line-height: 1.5; white-space: pre-wrap;
 }
+
+/* styles.css's .bm-field-row only special-cases .bm-select (flex:1); the
+   Keep-alive field pairs a plain .bm-input with a button the same way, so
+   it needs the same treatment. */
+.bm-field-row .bm-input { flex: 1; min-width: 0; }

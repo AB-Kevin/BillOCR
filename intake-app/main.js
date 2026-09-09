@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = {
   model: "qwen3-vl:8b-instruct",
   maxDim: 1600,
   keepAlive: "30m",
+  verificationPasses: 3, // 1 = off (today's single-read behavior); see extract_claim_fields.py's --verification-passes
   ollamaHost: "http://localhost:11434",
   openAtLogin: false,
 };
@@ -89,6 +90,7 @@ function startPipeline() {
   ];
   if (settings.keepAlive) args.push("--keep-alive", String(settings.keepAlive));
   if (settings.maxDim) args.push("--max-dim", String(settings.maxDim));
+  if (settings.verificationPasses) args.push("--verification-passes", String(settings.verificationPasses));
 
   proc = spawn(settings.pythonPath, args, { cwd: PIPELINE_DIR });
   procStartedAt = new Date().toISOString();
@@ -241,6 +243,34 @@ ipcMain.handle("ollama-check", async (_e, host) => {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
     return { ok: res.ok };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Unloads the model from Ollama's memory immediately, instead of waiting
+// out the Keep-alive setting. keep_alive: 0 on a request with no actual
+// prompt/messages is Ollama's documented way to do this via its own HTTP
+// API (same effect as running `ollama stop <model>` from a terminal) --
+// no dependency on the `ollama` CLI being on PATH, just the server this
+// app already talks to.
+ipcMain.handle("ollama-stop-model", async (_e, { host, model }) => {
+  const url = (host || readSettings().ollamaHost).replace(/\/+$/, "");
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${url}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, keep_alive: 0 }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { ok: false, error: text || `HTTP ${res.status}` };
+    }
+    return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message };
   }

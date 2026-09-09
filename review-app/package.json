@@ -29,6 +29,8 @@
         "filter": [
           "common.py",
           "claim_schemas.py",
+          "field_validation.py",
+          "validate_fields.py",
           "x12_837.py",
           "build_one.py",
           "dump_schema.py",

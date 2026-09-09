@@ -3,7 +3,7 @@
 Two desktop apps that replace the old BillOCR terminal scripts with point-and-click UIs, for the two machines the claims pipeline actually runs on:
 
 - **[BillOCR Intake](intake-app/)** — installed on the dedicated OCR machine. Runs the CMS-1500/UB-04 extraction watcher continuously in the background (Start/Stop button, system tray, launch-at-login).
-- **[BillOCR Review](review-app/)** — installed on the approval machine. Lets a person review/edit/approve extracted claims; approving a claim builds its `.837` immediately.
+- **[BillOCR Review](review-app/)** — installed on the approval machine. Lets a person review/edit/approve extracted claims; approving a claim builds its finished 837 (saved as `.txt`) immediately.
 
 The two apps never talk to each other directly — they only share a **workspace folder** over the network (see below). Both bundle a copy of the Python pipeline (in [`pipeline/`](pipeline/)) so this one repo is everything you need; you don't need the old BillOCR repo at all.
 
@@ -32,6 +32,15 @@ Both machines still need the same underlying local-LLM setup the old repo docume
 - **Approval machine**: Python 3.9+ only. `pipeline/x12_837.py` (what actually builds the 837) has zero third-party dependencies — nothing to `pip install` there.
 
 Each app has a "Python path" setting (defaults to `python3` on Mac/Linux, `python` on Windows) in case `python3`/`python` isn't the right command on a given machine.
+
+## Flagging likely misreads
+
+Two independent, complementary mechanisms flag fields worth double-checking, shown amber in Review (distinct from the red "missing required field" highlighting, which is about presence, not confidence):
+
+- **Verification passes** (Intake setting, default 3 total): after the primary read of an image, Intake resamples the same image that many more times at a higher temperature and flags any field where a resample disagrees with the primary read. Set to `1` to turn this off (today's single-read behavior, no extra cost); higher catches more but adds that many more model calls per image, so it's proportionally slower. `pipeline/field_validation.py`'s `values_equivalent()` tolerates pure formatting differences (`"150.00"` vs `150.0`) so those don't produce noise.
+- **Deterministic validation** (`pipeline/field_validation.py`, always on, no extra inference cost): NPI check-digit validation (the real CMS Luhn algorithm, not just a length check), ICD-10/CPT/HCPCS/ZIP/tax-ID shape checks, date sanity, and total-charge-vs-sum-of-line-items arithmetic. Shape checks only — there's no real ICD-10/CPT code-list lookup here, that would need the actual versioned code sets.
+
+Review recomputes the validation flags (not the pass-disagreement ones, which need re-running the model) every time you save an edited claim, via `pipeline/validate_fields.py` — editing a flagged field's value clears its disagreement flag and re-checks it against the validators fresh.
 
 ## Running each app
 

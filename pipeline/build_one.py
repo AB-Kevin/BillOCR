@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 One-shot single-claim 837 build: takes exactly one approved claim JSON and
-writes exactly one .837 file, then exits. This is what the Review app's
+writes exactly one finished 837 file (extension is whatever --out says --
+the Review app passes .txt), then exits. This is what the Review app's
 "Approve" button calls (build_one.py, not build_837.py) so approval is a
 synchronous, immediate action -- no watcher/background process needed on
 the approval machine. build_837.py's own continuous watcher is unrelated
@@ -10,7 +11,7 @@ terminal instead.
 
 Usage:
     python3 build_one.py --claim claim.json --org org_config.json \\
-        --control-state control_numbers.json --out claim.837
+        --control-state control_numbers.json --out claim.txt
 
 On success: writes --out, prints its resolved path to stdout, exits 0.
 On a data problem (a required field is missing/invalid): writes nothing,

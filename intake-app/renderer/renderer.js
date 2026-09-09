@@ -13,6 +13,7 @@ const state = {
   windowMaximized: false,
   startError: null,
   busy: false, // Start/Stop in flight
+  stopModelStatus: null, // brief feedback text under the "Stop now" button
 };
 
 const MAX_LOG_LINES = 500;
@@ -115,11 +116,20 @@ function renderPage() {
           </label>
           <label class="bm-field">
             <span class="bm-field-label">Keep-alive</span>
-            <input class="bm-input" id="field-keepAlive" value="${escapeAttr(s.keepAlive)}" placeholder="30m" />
+            <div class="bm-field-row">
+              <input class="bm-input" id="field-keepAlive" value="${escapeAttr(s.keepAlive)}" placeholder="30m" />
+              <button class="bm-btn bm-btn-secondary bm-btn-sm" id="stop-model-btn" type="button" title="Unload the model from Ollama's memory right now, instead of waiting out Keep-alive">Stop now</button>
+            </div>
+            ${state.stopModelStatus ? `<span class="bo-toggle-label">${escapeHtml(state.stopModelStatus)}</span>` : ""}
           </label>
           <label class="bm-field">
             <span class="bm-field-label">Ollama host</span>
             <input class="bm-input" id="field-ollamaHost" value="${escapeAttr(s.ollamaHost)}" placeholder="http://localhost:11434" />
+          </label>
+          <label class="bm-field">
+            <span class="bm-field-label">Verification passes</span>
+            <input class="bm-input" id="field-verificationPasses" type="number" min="1" max="10" value="${s.verificationPasses ?? 1}" placeholder="3" />
+            <span class="bo-toggle-label">1 = off (single read). Higher catches more likely misreads (flagged for review) but takes proportionally longer per image.</span>
           </label>
           <label class="bm-field">
             <span class="bm-field-label">Python path</span>
@@ -143,6 +153,7 @@ function renderPage() {
 
   page.querySelector("#start-stop-btn").addEventListener("click", onStartStopClick);
   page.querySelector("#choose-folder-btn").addEventListener("click", onChooseFolderClick);
+  page.querySelector("#stop-model-btn").addEventListener("click", onStopModelClick);
 
   const bindField = (id, key, transform, onSaved) => {
     const input = page.querySelector(id);
@@ -158,6 +169,7 @@ function renderPage() {
   bindField("#field-maxDim", "maxDim", (v) => (v ? Number(v) : null));
   bindField("#field-keepAlive", "keepAlive");
   bindField("#field-ollamaHost", "ollamaHost", null, (v) => checkOllama(v));
+  bindField("#field-verificationPasses", "verificationPasses", (v) => Math.max(1, Number(v) || 1));
   bindField("#field-pythonPath", "pythonPath", null, (v) => checkPython(v));
   bindField("#field-openAtLogin", "openAtLogin");
 
@@ -205,6 +217,15 @@ async function onChooseFolderClick() {
   if (folder) refreshPendingCount();
 }
 
+async function onStopModelClick() {
+  state.stopModelStatus = "Stopping…";
+  render();
+  const settings = state.settings;
+  const result = await window.api.stopModelNow(settings.ollamaHost, settings.model);
+  state.stopModelStatus = result.ok ? `Unloaded ${settings.model}.` : `Couldn't stop it: ${result.error}`;
+  render();
+}
+
 async function refreshStatus() {
   state.status = await window.api.pipelineStatus();
 }
@@ -228,11 +249,37 @@ let logPaneScrollBottom = true;
 
 function render() {
   const app = document.getElementById("app");
+
+  // This app re-renders periodically (see the 5s interval in init()) to
+  // keep status dots/counts/log fresh, which tears down and rebuilds the
+  // whole page every time -- without this, that reset .bo-page's scroll
+  // to the top and yanked focus out of whatever field you were typing in,
+  // every 5 seconds. Capture both before the rebuild, restore after.
+  const prevPage = document.querySelector(".bo-page");
+  const prevScrollTop = prevPage ? prevPage.scrollTop : 0;
+  const active = document.activeElement;
+  const focusId = active && active.id && app.contains(active) ? active.id : null;
+  const selection =
+    focusId && typeof active.selectionStart === "number" ? { start: active.selectionStart, end: active.selectionEnd } : null;
+
   app.innerHTML = "";
   const root = document.createDocumentFragment();
   root.appendChild(renderTitlebar());
   root.appendChild(renderPage());
   app.appendChild(root);
+
+  const newPage = document.querySelector(".bo-page");
+  if (newPage) newPage.scrollTop = prevScrollTop;
+
+  if (focusId) {
+    const restored = document.getElementById(focusId);
+    if (restored) {
+      restored.focus();
+      if (selection && typeof restored.setSelectionRange === "function") {
+        restored.setSelectionRange(selection.start, selection.end);
+      }
+    }
+  }
 
   const logPane = document.getElementById("log-pane");
   if (logPane && logPaneScrollBottom) logPane.scrollTop = logPane.scrollHeight;

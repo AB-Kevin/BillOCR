@@ -2,7 +2,8 @@
 """
 837 builder: watches an "approved" folder for reviewed claim JSON files
 (produced by extract_claim_fields.py, then hand-corrected and moved here
-by a person) and writes a corresponding .837 EDI file for each one.
+by a person) and writes a corresponding X12 837 EDI file for each one, saved
+with a .txt extension (the content is still 837, just plain-text-named).
 
 This does NOT talk to Ollama and does NOT do any OCR -- it's a pure,
 deterministic transform from structured data to X12 text, using
@@ -41,7 +42,7 @@ def process_one(json_path: Path, out_dir: Path, built_dir: Path, errors_dir: Pat
     claim_id = record.get("claim_id", json_path.stem)
     try:
         edi_text = build_837(record, org, control_numbers)
-        out_path = out_dir / f"{claim_id}.837"
+        out_path = out_dir / f"{claim_id}.txt"
         out_path.write_text(edi_text, encoding="utf-8")
         shutil.move(str(json_path), str(built_dir / json_path.name))
         logger.info("%s -> %s", json_path.name, out_path.name)
@@ -84,7 +85,7 @@ def run(approved, out, org_path="org_config.json", built=None, errors=None,
     control_numbers = ControlNumbers(Path(control_state))
 
     logger.info("Watching approved claims in: %s", approved_dir.resolve())
-    logger.info("Writing .837 files to: %s", out_dir.resolve())
+    logger.info("Writing 837 (.txt) files to: %s", out_dir.resolve())
     logger.info("Org config: %s (usage_indicator=%s)", org_path.resolve(), org.get("usage_indicator"))
 
     try:

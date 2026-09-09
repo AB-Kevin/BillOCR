@@ -29,6 +29,7 @@
         "filter": [
           "common.py",
           "claim_schemas.py",
+          "field_validation.py",
           "extract_claim_fields.py",
           "dump_schema.py",
           "requirements.txt"

@@ -3,7 +3,7 @@
 // No background process here (unlike Intake): reads the shared workspace's
 // pending_review folder, lets a person edit claim JSON, and on Approve
 // runs build_one.py synchronously (one short-lived process per claim) to
-// produce the .837 immediately, then archives the source JSON into
+// produce the finished 837 (saved as .txt) immediately, then archives the source JSON into
 // approved/. See pipeline/build_one.py for why this doesn't use
 // build_837.py's watcher.
 
@@ -20,6 +20,7 @@ const SETTINGS_PATH = path.join(app.getPath("userData"), "settings.json");
 const DEFAULT_SETTINGS = {
   workspaceFolder: null,
   pythonPath: process.platform === "win32" ? "python" : "python3",
+  imagePaneWidth: 480, // remembered width of the review screen's image pane, dragged via its resize handle
 };
 
 function readSettings() {
@@ -89,6 +90,7 @@ function claimSummary(record) {
     form_type: record.form_type,
     extracted_at: record.extracted_at,
     missing_required_fields: record.missing_required_fields || [],
+    flagged_count: Object.keys(record.flagged_fields || {}).length,
     used_thinking_fallback: !!record.used_thinking_fallback,
     patient_name: name,
     total_charge: totalCharge,
@@ -123,13 +125,26 @@ ipcMain.handle("settings-set", (_e, patch) => {
   return next;
 });
 
+// Names of the folders a real workspace root contains -- if someone picks
+// one of these directly (easy mistake: pending_review is the one folder
+// you actually look at day to day) rather than its parent, redirect to the
+// parent instead of silently creating a second, nested workspace inside it.
+const KNOWN_WORKSPACE_SUBDIRS = ["pending_review", "approved", "output_837", "incoming_1500", "incoming_ub04"];
+
 ipcMain.handle("workspace-choose", async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory", "createDirectory"] });
-  if (result.canceled || !result.filePaths[0]) return { folder: readSettings().workspaceFolder, orgSeeded: false };
-  const folder = result.filePaths[0];
+  if (result.canceled || !result.filePaths[0]) return { folder: readSettings().workspaceFolder, orgSeeded: false, correctedFrom: null };
+
+  let folder = result.filePaths[0];
+  let correctedFrom = null;
+  if (KNOWN_WORKSPACE_SUBDIRS.includes(path.basename(folder))) {
+    correctedFrom = folder;
+    folder = path.dirname(folder);
+  }
+
   const { orgSeeded } = ensureWorkspace(folder);
   writeSettings({ workspaceFolder: folder });
-  return { folder, orgSeeded };
+  return { folder, orgSeeded, correctedFrom };
 });
 
 ipcMain.handle("python-check", async (_e, pythonPath) => {
@@ -194,12 +209,66 @@ ipcMain.handle("claims-get", (_e, claimId) => {
   return { record, imagePath: imagePath && fs.existsSync(imagePath) ? imagePath : null };
 });
 
+// Fresh validation flags after an edit, via pipeline/validate_fields.py --
+// Review has no Ollama/model dependency of its own, so it can't recompute
+// extract_claim_fields.py's verification-pass disagreement flags (that
+// needs re-running the model); it CAN recompute the deterministic
+// validation ones (NPI checksum, code shape, sum-of-lines) the same way
+// every time, via the one shared Python implementation in
+// field_validation.py, rather than reimplementing those checks in JS.
+function recomputeValidationFlags(pythonPath, formType, fields) {
+  try {
+    const out = execFileSync(pythonPath, [path.join(PIPELINE_DIR, "validate_fields.py")], {
+      cwd: PIPELINE_DIR,
+      input: JSON.stringify({ form_type: formType, fields }),
+      encoding: "utf-8",
+    });
+    return JSON.parse(out).flags || {};
+  } catch (err) {
+    // Don't let a broken validator block saving the claim -- just skip
+    // the refresh this time (existing validation flags, if any, are left
+    // as they were).
+    return null;
+  }
+}
+
 function saveClaim(workspaceFolder, claimId, fields) {
   const p = paths(workspaceFolder);
   const jsonPath = path.join(p.pendingReview, `${claimId}.json`);
   const record = readClaimRecord(jsonPath);
+  const previousFields = record.fields || {};
+  const previousFlagged = record.flagged_fields || {};
+
   record.fields = fields;
   record.missing_required_fields = recomputeMissing(record.form_type, fields);
+
+  // Disagreement flags are historical (from the original multi-pass
+  // extraction) -- keep them for any field the human didn't touch, but
+  // drop them for one they just edited by hand (that's presumably
+  // resolved now). Validation flags get recomputed fresh below instead of
+  // carried forward at all here -- but only replaced if that recompute
+  // actually succeeds (see recomputeValidationFlags), so a failed/missing
+  // Python doesn't silently erase existing validation flags on fields the
+  // human never touched.
+  const flagged = {};
+  for (const [key, entries] of Object.entries(previousFlagged)) {
+    const changed = JSON.stringify(previousFields[key]) !== JSON.stringify(fields[key]);
+    const kept = changed ? entries.filter((e) => e.type !== "disagreement") : entries;
+    if (kept.length) flagged[key] = kept;
+  }
+  const settings = readSettings();
+  const freshValidation = recomputeValidationFlags(settings.pythonPath, record.form_type, fields);
+  if (freshValidation) {
+    for (const key of Object.keys(flagged)) {
+      flagged[key] = flagged[key].filter((e) => e.type !== "validation");
+      if (flagged[key].length === 0) delete flagged[key];
+    }
+    for (const [key, entries] of Object.entries(freshValidation)) {
+      flagged[key] = [...(flagged[key] || []), ...entries];
+    }
+  }
+  record.flagged_fields = flagged;
+
   fs.writeFileSync(jsonPath, JSON.stringify(record, null, 2), "utf-8");
   return record;
 }
@@ -243,7 +312,9 @@ ipcMain.handle("claims-approve", (_e, { claimId, fields }) => {
   saveClaim(settings.workspaceFolder, claimId, fields);
 
   const jsonPath = path.join(p.pendingReview, `${claimId}.json`);
-  const outPath = path.join(p.outputDir, `${claimId}.837`);
+  // .txt, not .837 -- the content is still X12 837 EDI text, just saved
+  // with a plain-text extension per Kevin's request.
+  const outPath = path.join(p.outputDir, `${claimId}.txt`);
   fs.mkdirSync(p.outputDir, { recursive: true });
 
   return new Promise((resolve) => {
@@ -286,7 +357,7 @@ ipcMain.handle("claims-counts", () => {
   return {
     pending: countFiles(p.pendingReview, ".json"),
     approved: countFiles(p.approved, ".json"),
-    output: countFiles(p.outputDir, ".837"),
+    output: countFiles(p.outputDir, ".txt"),
   };
 });
 
