@@ -1,0 +1,64 @@
+{
+  "name": "billocr-intake",
+  "version": "1.0.0",
+  "description": "BillOCR Intake - runs the CMS-1500/UB-04 extraction watcher on the dedicated OCR machine",
+  "main": "main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "org.anabaptistbrotherhood.billocr-intake",
+    "productName": "BillOCR Intake",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../pipeline",
+        "to": "pipeline",
+        "filter": [
+          "common.py",
+          "claim_schemas.py",
+          "extract_claim_fields.py",
+          "dump_schema.py",
+          "requirements.txt"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "AB-Kevin",
+      "repo": "BillOCR",
+      "releaseType": "release"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

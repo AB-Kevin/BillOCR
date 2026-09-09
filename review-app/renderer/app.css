@@ -1,0 +1,65 @@
+/* BillOCR Review — additions on top of the shared styles.css design system.
+   Kept in its own file so styles.css stays an exact, diffable copy of
+   BillManager's. Reuses styles.css's rail/list/plate/field vocabulary
+   (.bm-rail, .bm-nav-item, .bm-list-*, .bm-field, .bm-btn, .bm-preview-plate
+   concepts) rather than reinventing it — only genuinely new layout here. */
+
+.rv-body { flex: 1; display: grid; grid-template-columns: 268px 1fr; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+.rv-main { padding: var(--space-6); overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-5); min-height: 0; }
+.rv-main-header { display: flex; align-items: baseline; justify-content: space-between; }
+.rv-main-title { font-size: 19px; font-weight: 600; color: var(--text-heading); }
+.rv-main-sub { font-size: 12px; color: var(--text-caption); font-family: var(--font-condensed); letter-spacing: var(--tracking-label); text-transform: uppercase; }
+
+/* ---- Queue list ---- */
+.rv-queue-list { display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--border-hairline); border-radius: var(--radius-control); overflow: hidden; }
+.rv-claim-row {
+  display: grid; grid-template-columns: 1fr 110px 110px 140px 150px; gap: var(--space-3); align-items: center;
+  padding: var(--space-3) var(--space-4); background: var(--surface-card); cursor: pointer;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.rv-claim-row:last-child { border-bottom: none; }
+.rv-claim-row:hover { background: var(--surface-card-alt); }
+.rv-claim-name { font-size: 13px; color: var(--text-body); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-claim-meta { font-family: var(--font-condensed); font-size: 12px; color: var(--text-caption); }
+.rv-claim-charge { font-family: var(--font-condensed); font-size: 12px; color: var(--text-body); font-variant-numeric: tabular-nums; }
+.rv-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
+.rv-badge-missing { background: #f6e9e6; color: #9c4a3d; }
+.rv-badge-ok { background: var(--green-100); color: var(--accent-text); }
+
+/* ---- Review layout (image + editable field form) ---- */
+.rv-review { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.rv-review-topbar { display: flex; align-items: center; gap: var(--space-3); }
+.rv-review-counter { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); }
+.rv-review-nav { display: flex; gap: var(--space-2); margin-left: auto; }
+.rv-review-layout { flex: 1; min-height: 0; display: flex; gap: var(--space-5); }
+.rv-review-image-pane {
+  flex: 0 0 420px; background: var(--surface-card-alt); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);
+  display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: zoom-in;
+}
+.rv-review-image-pane img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.rv-review-form-pane { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding-right: 4px; }
+.rv-review-warning { background: #f6e9e6; color: #9c4a3d; border-radius: var(--radius-control); padding: var(--space-3) var(--space-4); font-size: 12.5px; line-height: 1.5; }
+.rv-field-hint { font-size: 11.5px; color: var(--text-caption); line-height: 1.4; }
+.rv-field.missing .bm-input,
+.rv-field.missing textarea { border-color: #9c4a3d; background: #fdf4f2; }
+.rv-field textarea {
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-control); background: var(--surface-card);
+  color: var(--text-body); font-size: 12.5px; font-family: "SF Mono", "Consolas", monospace; padding: 8px 10px;
+  outline: none; resize: vertical; min-height: 60px; line-height: 1.5;
+}
+.rv-field textarea:focus { border-color: var(--accent-text); }
+.rv-review-actions { display: flex; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-hairline); flex-shrink: 0; }
+.rv-review-actions .bm-btn-ghost-spacer { margin-left: auto; }
+
+.rv-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); text-align: center; padding: var(--space-7); gap: var(--space-2); }
+.rv-empty-title { font-size: 15px; font-weight: 600; color: var(--text-heading); }
+
+/* ---- Organization settings ---- */
+.rv-settings-form { max-width: 560px; display: flex; flex-direction: column; gap: var(--space-4); }
+.rv-settings-group { display: flex; flex-direction: column; gap: var(--space-3); padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-hairline); }
+.rv-settings-group:last-child { border-bottom: none; }
+.rv-save-row { display: flex; align-items: center; gap: var(--space-3); }
+.rv-save-status { font-size: 12px; color: var(--text-caption); }
+
+/* ---- About ---- */
+.rv-about { max-width: 480px; display: flex; flex-direction: column; gap: var(--space-3); }

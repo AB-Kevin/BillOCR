@@ -1,0 +1,25 @@
+# OS cruft
+.DS_Store
+
+# Node / Electron
+node_modules/
+dist/
+*.log
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+
+# Any local workspace folder someone points an app at from inside this repo
+# by mistake (it shouldn't be -- see README's "workspace folder" section --
+# but this is a safety net so real claim data / PHI never lands in git).
+/workspace/
+/*.workspace/
+org_config.json
+control_numbers.json
+incoming_1500/
+incoming_ub04/
+pending_review/
+approved/
+output_837/

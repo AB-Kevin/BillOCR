@@ -1,0 +1,107 @@
+name: Release Intake
+
+# Builds and publishes BillOCR Intake's Windows (.exe) and macOS (.dmg/.zip)
+# installers to a GitHub Release.
+#
+# Usage: bump "version" in intake-app/package.json, commit, then:
+#   git tag intake-v1.0.0
+#   git push origin intake-v1.0.0
+#
+# Why this doesn't just run `npm run release` (electron-builder --publish
+# always) like BillManager's workflow does: this repo holds TWO apps
+# publishing to the SAME GitHub repo. electron-builder derives its release
+# tag from package.json's version as plain "v<version>", with no way to add
+# an "intake-"/"review-" prefix -- so both apps' own --publish-always runs
+# would collide on identical tags (or silently mix assets together) the
+# moment their versions matched. Instead: a create-release job pre-creates
+# a release under our own "intake-v<version>" tag (same
+# pre-create-before-building fix BillManager's own workflow already uses,
+# for the same electron-builder GH-publish race -- see its release.yml
+# comment), then each platform job builds with --publish never and uploads
+# its own assets directly via `gh release upload`. Serialized the same way
+# (needs:) for the same reason BillManager's workflow is: two jobs
+# uploading to the same release at once can race.
+
+on:
+  push:
+    tags:
+      - "intake-v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: intake-app
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ensure a GitHub Release exists for this version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="intake-v$(node -p "require('./package.json').version")"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, reusing it."
+          else
+            gh release create "$TAG" --repo "${{ github.repository }}" --title "BillOCR Intake $TAG" --notes ""
+          fi
+
+  release-windows:
+    needs: create-release
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: intake-app
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: intake-app/package-lock.json
+
+      - run: npm ci
+
+      - name: Build (Windows)
+        run: npx electron-builder --win --publish never
+
+      - name: Upload assets to the pre-created release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="intake-v$(node -p "require('./package.json').version")"
+          gh release upload "$TAG" dist/*.exe dist/latest.yml --repo "${{ github.repository }}" --clobber
+
+  release-mac:
+    needs: release-windows
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: intake-app
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: intake-app/package-lock.json
+
+      - run: npm ci
+
+      - name: Build (macOS)
+        run: npx electron-builder --mac --publish never
+
+      - name: Upload assets to the pre-created release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="intake-v$(node -p "require('./package.json').version")"
+          gh release upload "$TAG" dist/*.dmg dist/*.zip dist/latest-mac.yml --repo "${{ github.repository }}" --clobber

@@ -1,0 +1,17 @@
+{
+  "_comment": "Copy this file to org_config.json and fill in your real values before running build_837.py. Do not commit org_config.json anywhere shared -- it identifies your organization on every claim.",
+
+  "submitter_id": "REPLACE_ME",
+  "submitter_name": "ANABAPTIST BROTHERHOOD",
+  "submitter_contact_name": "Kevin",
+  "submitter_phone": "555-555-5555",
+
+  "receiver_id": "REPLACE_ME",
+  "receiver_name": "REPLACE WITH YOUR INTERNAL SYSTEM'S NAME",
+
+  "usage_indicator": "T",
+  "_usage_indicator_note": "T = test data, P = production. Leave as T until your internal system's owner confirms real files should start flowing -- switching this is the signal that these are no longer test transactions.",
+
+  "claim_filing_indicator": "ZZ",
+  "_claim_filing_indicator_note": "X12 code list 1032 (SBR09). 'ZZ' (Mutually Defined) is a safe placeholder, not a real answer -- pick the value your internal system actually expects, e.g. '11' Other Non-Federal Programs, 'CI' Commercial Insurance, 'CH' Champus, etc. See README."
+}

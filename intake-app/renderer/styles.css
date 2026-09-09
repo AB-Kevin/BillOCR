@@ -1,0 +1,846 @@
+/* BillManager — Anabaptist Brotherhood design system.
+   Tokens mirrored from the anabaptist-brotherhood-design system's
+   tokens/*.css (Brand & Design Manual v1.1) — keep these in sync with that
+   source rather than eyeballing new values. v1.1 corrected the brand green
+   (was #006E47, a documented v1.0 error) and added Brotherhood Maroon as a
+   narrow secondary color: solid CTAs only, never structural (headings,
+   rules, rails, links stay green).
+
+   Theming: everything below is consumed through custom properties rather
+   than literal colors, specifically so [data-theme="dark"] / [data-theme=
+   "midnight"] (set on <html> by applyTheme() in renderer.js) can re-point a
+   handful of them and reskin the whole app:
+     --surface-page/--surface-card/--surface-card-alt — what's behind things:
+       the window itself, a "raised" card/modal/input, and a recessed/alt
+       tint (thumbnail placeholders, hover rows).
+     --accent-text/--on-accent/--on-rail/--rail-active-bg — the SAME
+       green-branded interactions (links, active states, filled buttons,
+       rail text) paired with whatever's correct for the surface they're
+       currently sitting on. See the Dark/Midnight blocks for how each uses
+       them differently. */
+:root {
+  /* Color */
+  --green-700: #005537;
+  --green-600: #006140;
+  --green-500: #006d46; /* brand — corrected from #006E47 (v1.0 error) */
+  --green-300: #bbcfc4;
+  --green-100: #e8f1ec;
+  --green-050: #f4f8f6;
+  --maroon-600: #6e3745; /* Deep Maroon — hover/pressed only */
+  --maroon-500: #864855; /* Brotherhood Maroon — secondary, CTAs only */
+  --gray-900: #231f20;
+  --gray-600: #58595b;
+  --gray-400: #8a8b8d;
+  --gray-200: #d5d6d7;
+  --gray-100: #ededee;
+  --white: #ffffff;
+
+  /* Accent as used away from the rail — brand green by default, re-pointed
+     per theme so text/borders/focus rings/selection stay legible once the
+     surface behind them is no longer white. */
+  --accent-text: var(--green-500);
+  --on-accent: var(--white); /* text/icon color for a solid accent-filled control */
+  --on-rail: var(--white); /* text/icon color for anything on --surface-rail or the About band */
+  --rail-active-bg: var(--white); /* solid highlight fill for the active rail nav item / tag plate */
+  --scrollbar-thumb: var(--gray-200);
+
+  --text-body: var(--gray-900);
+  --text-muted: var(--gray-600);
+  --text-heading: var(--accent-text);
+  --text-caption: var(--gray-600);
+  --border-hairline: var(--gray-200);
+  --border-rule: var(--accent-text);
+  --border-rule-soft: var(--green-300);
+  --border-reversed: color-mix(in srgb, var(--on-rail) 70%, transparent);
+  --focus-ring: var(--accent-text);
+  --surface-page: var(--white);
+  --surface-card: var(--white); /* cards, modals, inputs, popovers, comment boxes — "raised" surfaces */
+  --surface-card-alt: var(--green-050);
+  --surface-rail: var(--green-500);
+  --brand-maroon: var(--maroon-500);
+  --overlay-scrim: rgba(35, 31, 32, 0.45);
+
+  /* Type */
+  --font-sans: "Poppins", "Intelo Alt", "Nunito Sans", system-ui, sans-serif;
+  --font-condensed: "Barlow Condensed", "Acumin Pro Condensed", "Oswald", var(--font-sans);
+  --tracking-tight: -0.01em;
+  --tracking-label: 0.06em;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --radius-control: 4px;
+  --rule-heavy: 3px;
+
+  --shadow-window: 0 24px 60px rgba(35, 31, 32, 0.18);
+  --shadow-modal: 0 18px 50px rgba(35, 31, 32, 0.28);
+  --shadow-popover: 0 12px 32px rgba(35, 31, 32, 0.22);
+
+  --motion-fast: 120ms ease-out;
+  --motion-base: 200ms ease-out;
+}
+
+/* ---- Dark ----
+   "Light mode with the green rail, gray main window": the rail, and every
+   filled accent button/toggle, stay exactly as :root defines them (still
+   brand green + white text) — only the page/card surfaces and body text
+   move to a dark neutral scale. --accent-text lightens, and --green-100/
+   -050 (the pale-tint role paired with it — hover fills, tag/chip defaults,
+   the empty-state highlight card) go dark-tinted to match, so every place
+   that already pairs "accent text on a light tint" keeps working once that
+   tint itself is dark instead of pale. */
+[data-theme="dark"] {
+  --surface-page: #1b1c1e;
+  --surface-card: #232527;
+  --surface-card-alt: #2c2e31;
+  --border-hairline: #38393c;
+  --scrollbar-thumb: #48494c;
+  --text-body: #ececec;
+  --text-muted: #a8a9ab;
+  --text-caption: #a8a9ab;
+  --accent-text: #4cc38a;
+  --green-100: #24352d;
+  --green-050: #1e2b25;
+  --overlay-scrim: rgba(0, 0, 0, 0.6);
+}
+
+/* ---- Midnight ----
+   Entirely gray, rail a shade darker than the main window, with brand green
+   itself swapped for a mint scale — since --green-500/600/700/300/100/050
+   are what every accent-colored button, tag default, link, active state,
+   and focus ring already draws from, overriding just those six values is
+   what turns the whole app mint-accented in one move. Rail/About text reads
+   mint too (--on-rail), and filled buttons flip to dark text (--on-accent)
+   since the new accent-500 is pale enough to need it. */
+[data-theme="midnight"] {
+  --green-700: #3fb98e;
+  --green-600: #57cda3;
+  --green-500: #6fe0b8;
+  --green-300: #4f7d6d;
+  --green-100: #2a3d38;
+  --green-050: #23332e;
+
+  --surface-rail: #1a1c1e;
+  --surface-page: #232527;
+  --surface-card: #2b2d30;
+  --surface-card-alt: #333537;
+  --border-hairline: #3c3e41;
+  --scrollbar-thumb: #4a4c4f;
+
+  --text-body: #e7e9e8;
+  --text-muted: #a3a6a5;
+  --text-caption: #a3a6a5;
+  --accent-text: var(--green-500);
+
+  --on-accent: #0d1f1a; /* dark text needed on the now-pale mint fills */
+  --on-rail: var(--green-500); /* rail/About text reads mint instead of white */
+  --rail-active-bg: #3a3d40; /* neutral gray highlight — no white pop in an all-gray theme */
+  --overlay-scrim: rgba(0, 0, 0, 0.65);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text-body);
+  background: var(--surface-page);
+  overflow: hidden;
+}
+button, input, select, textarea { font-family: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--accent-text); text-decoration: none; border-bottom: 1px solid var(--green-300); }
+a:hover { color: var(--green-700); border-bottom-color: var(--green-500); }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-page);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-window);
+  overflow: hidden;
+  /* This is an app shell, not a document — click-drag is for selecting files
+     (including Shift/Ctrl-click ranges in the grid), not text. Without this,
+     the browser's native text-selection gesture kicks in on every Shift-click,
+     highlighting file names, rail labels, even the titlebar, for as long as
+     the mouse button is held. Form fields (search, comments, tag-manager
+     inputs) are exempt from user-select by spec, so typing/editing is unaffected. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ---- Title bar ---- */
+.bm-titlebar {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface-page);
+  border-bottom: 1px solid var(--border-hairline);
+  -webkit-app-region: drag;
+}
+.bm-titlebar-brand { display: flex; align-items: center; gap: var(--space-2); padding-left: 14px; }
+.bm-titlebar-title { font-size: var(--text-small, 13px); font-weight: 500; color: var(--text-body); }
+.bm-titlebar-controls { display: flex; align-items: stretch; height: 100%; -webkit-app-region: no-drag; }
+.bm-titlebar-btn {
+  width: 46px; height: 100%; display: flex; align-items: center; justify-content: center;
+  border: none; background: none; color: var(--gray-600); padding: 0;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.bm-titlebar-btn:hover { background: var(--surface-card-alt); }
+.bm-titlebar-btn.bm-titlebar-close:hover { background: #c0392b; color: #fff; }
+
+/* ---- App body: rail / main / preview ---- */
+/* grid-template-rows: minmax(0, 1fr) (not the implicit "auto") is what makes
+   the row's height a hard bound instead of growing to fit its tallest child's
+   content — without it, a rail/grid with enough content (many tags, many
+   files) grows the whole row past the viewport, and anything below the fold
+   (e.g. the rail's version/About footer) gets clipped by #app's overflow:
+   hidden with no way to scroll to it. */
+.bm-body { flex: 1; display: grid; grid-template-columns: 268px 1fr 384px; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+/* Review mode (see renderReviewMain) drops the rail's 268px track — its one
+   big viewer fills that space too — while the right-hand preview pane keeps
+   its usual 384px. */
+.bm-body-review { grid-template-columns: 1fr 384px; }
+
+/* ---- Startup loading screen (see renderLoadingScreen in renderer.js) ---- */
+.bm-loading-screen {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-3); background: var(--surface-page);
+}
+.bm-loading-spinner svg { width: 28px; height: 28px; color: var(--accent-text); animation: bm-spin 0.8s linear infinite; }
+.bm-loading-text {
+  font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--text-caption);
+}
+
+/* ---- Rail ---- */
+.bm-rail {
+  background: var(--surface-rail);
+  color: var(--on-rail);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--space-6) var(--space-5) var(--space-5);
+  overflow: hidden;
+}
+.bm-rail-brand {
+  display: flex; flex-direction: column; gap: 4px;
+  padding-bottom: var(--space-5); border-bottom: 1px solid var(--border-reversed);
+  flex-shrink: 0;
+}
+.bm-rail-title { font-size: 22px; font-weight: 600; letter-spacing: var(--tracking-tight); }
+.bm-rail-sub {
+  font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: color-mix(in srgb, var(--on-rail) 80%, transparent);
+}
+.bm-rail-scroll {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
+  display: flex; flex-direction: column;
+}
+
+.bm-choose-folder-wrap { padding: var(--space-5) 0 0; flex-shrink: 0; }
+.bm-rail-path-row { margin-top: var(--space-3); display: flex; gap: var(--space-2); align-items: flex-start; }
+.bm-rail-path {
+  font-family: var(--font-condensed); font-size: 12px; line-height: 1.4;
+  color: color-mix(in srgb, var(--on-rail) 75%, transparent); word-break: break-all; flex: 1;
+}
+.bm-rail-hint { font-size: 12px; color: color-mix(in srgb, var(--on-rail) 75%, transparent); margin-top: var(--space-3); line-height: 1.5; }
+.bm-refresh-btn {
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  background: none; border: none; cursor: pointer; color: color-mix(in srgb, var(--on-rail) 75%, transparent); padding: 2px; border-radius: var(--radius-control);
+}
+.bm-refresh-btn:hover { color: var(--on-rail); background: color-mix(in srgb, var(--on-rail) 12%, transparent); }
+.bm-refresh-btn:disabled { cursor: default; }
+.bm-refresh-btn.spinning svg { animation: bm-spin 0.8s linear infinite; }
+@keyframes bm-spin { to { transform: rotate(360deg); } }
+
+.bm-rail-label {
+  font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: color-mix(in srgb, var(--on-rail) 70%, transparent);
+  padding-bottom: var(--space-2);
+}
+.bm-rail-label-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding-top: var(--space-6);
+}
+.bm-rail-label-row .bm-rail-label { padding-bottom: 0; }
+.bm-rail-link {
+  cursor: pointer; border-bottom: 1px solid var(--border-reversed); color: var(--on-rail);
+  background: none; border-top: none; border-left: none; border-right: none; padding: 0;
+  font-family: inherit; font-size: 12px;
+}
+.bm-rail-link:hover { border-bottom-color: var(--on-rail); }
+
+.bm-nav-item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: 9px var(--space-3); border-radius: var(--radius-control); font-size: 13px; cursor: pointer;
+  color: color-mix(in srgb, var(--on-rail) 92%, transparent);
+}
+.bm-nav-item:hover { background: color-mix(in srgb, var(--on-rail) 10%, transparent); }
+.bm-nav-item.active { background: var(--rail-active-bg); color: var(--accent-text); font-weight: 500; }
+/* Special/meta filter row (e.g. "Loose files") rather than a real folder —
+   dimmed the same way .bm-tag-nav's "No tags" row is relative to real tags. */
+.bm-nav-item.dim { color: color-mix(in srgb, var(--on-rail) 70%, transparent); }
+.bm-nav-item.dim.active { color: var(--accent-text); } /* same cascade fix .bm-tag-nav.dim.active needed — .dim would otherwise win over .active's color, both being 2-class rules */
+.bm-nav-name { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.bm-nav-name svg { flex-shrink: 0; }
+.bm-nav-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-nav-count { font-size: 12px; flex-shrink: 0; }
+.bm-folder-nav-list { max-height: 190px; overflow-y: auto; overflow-x: hidden; margin-bottom: var(--space-2); }
+
+.bm-tag-nav-list { display: flex; flex-direction: column; }
+.bm-tag-nav {
+  display: flex; align-items: center; gap: var(--space-2); padding: 9px var(--space-3);
+  border-radius: var(--radius-control); font-size: 13px; cursor: pointer; color: color-mix(in srgb, var(--on-rail) 92%, transparent);
+}
+.bm-tag-nav:hover { background: color-mix(in srgb, var(--on-rail) 10%, transparent); }
+.bm-tag-nav.active { background: var(--rail-active-bg); color: var(--accent-text); font-weight: 500; }
+.bm-tag-nav.dim { color: color-mix(in srgb, var(--on-rail) 70%, transparent); }
+/* .dim and .active are both 2-class selectors, so .dim (defined later) was
+   winning the cascade on "No tags" when it's active — near-white text on
+   the white active background it inherits from the rule above, invisible.
+   3 classes beats both, regardless of source order. */
+.bm-tag-nav.dim.active { color: var(--accent-text); }
+.bm-tag-nav-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-tag-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+/* Real tags render as their own colored .bm-tag pill (same component the
+   file grid/list/preview use) rather than plain reversed text — the pill's
+   own tint is tuned for a light plate, so it sits on a small light-plate
+   patch just big enough to hold it (--rail-active-bg — same fill the
+   folder-style full-width active row above uses, not literal white, so
+   Midnight's all-gray rail doesn't get a random white pop), not the
+   folder-style full-width fill .bm-tag-nav.active uses (higher specificity
+   than the plain .active rule above, so it wins for pilled rows without
+   touching the untagged/"No tags" row, which has no pill and keeps that
+   original treatment). */
+.bm-tag-nav-pilled { justify-content: space-between; }
+.bm-tag-nav-pill-wrap { display: inline-flex; min-width: 0; background: var(--rail-active-bg); border-radius: 999px; padding: 3px; }
+.bm-tag-nav-pill-wrap .bm-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-tag-nav.bm-tag-nav-pilled.active { background: color-mix(in srgb, var(--on-rail) 18%, transparent); color: color-mix(in srgb, var(--on-rail) 92%, transparent); font-weight: 400; }
+.bm-rail-empty { font-size: 12px; color: color-mix(in srgb, var(--on-rail) 70%, transparent); padding: 4px var(--space-3); }
+
+.bm-rail-footer {
+  margin-top: auto; padding-top: var(--space-4); border-top: 1px solid var(--border-reversed);
+  display: flex; flex-direction: column; gap: var(--space-3); flex-shrink: 0;
+}
+.bm-rail-footer-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: color-mix(in srgb, var(--on-rail) 75%, transparent);
+}
+.bm-rail-footer-links { display: flex; align-items: baseline; gap: var(--space-3); }
+.bm-rail-update-row { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: color-mix(in srgb, var(--on-rail) 85%, transparent); }
+.bm-rail-update-error { color: #ffb4a8; }
+.bm-rail-update-clickable { cursor: pointer; }
+.bm-rail-update-clickable:hover { color: var(--on-rail); }
+
+/* ---- Buttons ---- */
+.bm-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: var(--radius-control); font-size: 13px; font-weight: 500; cursor: pointer;
+  padding: 10px 16px; height: 40px; border: 1px solid transparent;
+  transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+  white-space: nowrap;
+}
+.bm-btn:disabled { opacity: 0.45; cursor: default; }
+.bm-btn-block { width: 100%; }
+.bm-btn-sm { height: 34px; padding: 7px 12px; font-size: 12.5px; }
+
+.bm-btn-primary { background: var(--green-500); color: var(--on-accent); border-color: var(--green-500); }
+.bm-btn-primary:hover:not(:disabled) { background: var(--green-600); }
+.bm-btn-primary:active:not(:disabled) { background: var(--green-700); }
+
+/* Maroon is the design system's secondary color — narrow use only: solid
+   CTAs (a form's submit button), never structural chrome. Only one solid
+   button per view, and never a green solid next to a maroon solid — the
+   manage-tags modal's "Save changes" button (#tag-modal-save in
+   renderer.js) is the one place this applies today. Deliberately NOT
+   theme-dependent — a fixed secondary brand color, like a tag's own chosen
+   color, regardless of light/dark/midnight. */
+.bm-btn-primary.bm-btn-maroon { background: var(--maroon-500); border-color: var(--maroon-500); }
+.bm-btn-primary.bm-btn-maroon:hover:not(:disabled),
+.bm-btn-primary.bm-btn-maroon:active:not(:disabled) { background: var(--maroon-600); border-color: var(--maroon-600); }
+
+.bm-btn-secondary { background: var(--surface-card); color: var(--accent-text); border-color: var(--accent-text); }
+.bm-btn-secondary:hover:not(:disabled) { background: var(--green-100); }
+
+/* No maroon tint token exists (deliberate, per the design system) — shade
+   the hover directly off --maroon-500 instead, same as the DS Button
+   component's own outline-maroon treatment. */
+.bm-btn-secondary.bm-btn-maroon { color: var(--maroon-500); border-color: var(--maroon-500); }
+.bm-btn-secondary.bm-btn-maroon:hover:not(:disabled) { background: rgba(134, 72, 85, 0.08); }
+
+.bm-btn-ghost { background: none; color: var(--accent-text); border-color: transparent; padding-left: 8px; padding-right: 8px; }
+.bm-btn-ghost:hover:not(:disabled) { background: var(--green-100); }
+
+.bm-btn-danger { background: var(--surface-card); color: #9c4a3d; border-color: #9c4a3d; }
+.bm-btn-danger:hover:not(:disabled) { background: #f6e9e6; }
+
+.bm-btn-reversed { background: transparent; color: var(--on-rail); border-color: color-mix(in srgb, var(--on-rail) 70%, transparent); }
+.bm-btn-reversed:hover:not(:disabled) { background: color-mix(in srgb, var(--on-rail) 12%, transparent); }
+
+/* ---- Form fields ---- */
+.bm-field { display: flex; flex-direction: column; gap: 6px; }
+.bm-field-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.bm-field-row .bm-select { flex: 1; min-width: 0; }
+.bm-field-row .bm-btn { flex-shrink: 0; }
+.bm-field-label {
+  font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--text-caption);
+}
+.bm-input, .bm-select {
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-control); background: var(--surface-card);
+  color: var(--text-body); font-size: 13px; padding: 10px 12px; outline: none; height: 40px;
+  font-family: var(--font-sans);
+}
+.bm-input::placeholder { color: var(--gray-400); }
+.bm-input:focus, .bm-select:focus { border-color: var(--accent-text); }
+.bm-select { cursor: pointer; }
+.bm-select:disabled, .bm-input:disabled { opacity: 0.45; cursor: default; }
+
+/* ---- Main column ---- */
+.bm-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.bm-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-4); padding: var(--space-5) var(--space-6) var(--space-4); }
+.bm-toolbar-search { flex: 1 1 220px; min-width: 220px; }
+.bm-toolbar-search .bm-search-input-wrap { position: relative; }
+.bm-toolbar-search .bm-search-input-wrap svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.bm-toolbar-search input { padding-left: 34px; }
+.bm-toolbar-sort { width: 200px; flex-shrink: 0; }
+.bm-toolbar-view { flex-shrink: 0; margin-bottom: 1px; }
+.bm-toolbar-undo { flex-shrink: 0; margin-bottom: 1px; }
+.bm-toolbar-review { flex-shrink: 0; margin-bottom: 1px; }
+
+/* ---- Grid/list view toggle ---- */
+.bm-view-toggle { display: inline-flex; height: 40px; border: 1px solid var(--border-hairline); border-radius: var(--radius-control); overflow: hidden; }
+.bm-view-toggle-btn {
+  width: 40px; height: 100%; display: flex; align-items: center; justify-content: center;
+  border: none; background: var(--surface-card); color: var(--gray-400); padding: 0; cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.bm-view-toggle-btn + .bm-view-toggle-btn { border-left: 1px solid var(--border-hairline); }
+.bm-view-toggle-btn:hover:not(.active):not(:disabled) { background: var(--surface-card-alt); color: var(--text-body); }
+.bm-view-toggle-btn.active { background: var(--green-500); color: var(--on-accent); }
+.bm-view-toggle-btn:disabled { opacity: 0.45; cursor: default; }
+
+.bm-rule-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--space-6) var(--space-4); margin: 0 var(--space-6);
+  border-bottom: var(--rule-heavy) solid var(--border-rule);
+}
+.bm-checkbox-label { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; color: var(--text-body); cursor: pointer; }
+.bm-checkbox-label input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent-text); }
+.bm-rule-row-meta { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); }
+
+.bm-active-filters { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; padding: 0 var(--space-6); }
+.bm-active-filters:not(:empty) { padding-top: var(--space-3); }
+.bm-active-filter {
+  font-size: 12px; color: var(--chip-color, var(--accent-text)); display: flex; align-items: center; gap: 5px;
+  background: var(--chip-bg, var(--green-100)); padding: 5px 9px; border-radius: var(--radius-control);
+}
+.bm-active-filter button { border: none; background: none; cursor: pointer; display: flex; color: inherit; padding: 0; }
+
+.bm-grid-wrap { flex: 1; overflow-y: auto; padding: var(--space-5) var(--space-6) var(--space-7); }
+/* Dragging files in from the OS file explorer (see renderGridInto's
+   dragenter/dragover/dragleave/drop wiring) — inset so it never shifts
+   layout, same trick .bm-card.selected's box-shadow ring already uses. */
+.bm-grid-wrap.drag-over { background: var(--green-050); box-shadow: inset 0 0 0 2px var(--accent-text); }
+.bm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-4); }
+
+.bm-card {
+  background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);
+  cursor: pointer; overflow: hidden; position: relative; display: flex; flex-direction: column;
+  transition: border-color var(--motion-fast);
+}
+.bm-card:hover { border-color: var(--green-300); }
+.bm-card.selected { border-color: var(--accent-text); box-shadow: 0 0 0 1px var(--accent-text); }
+.bm-card-thumb {
+  height: 132px; flex-shrink: 0; background: var(--surface-card-alt); border-bottom: 1px solid var(--border-hairline);
+  position: relative; display: flex; align-items: center; justify-content: center;
+}
+.bm-card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.bm-card-kind {
+  position: absolute; top: 8px; left: 10px; font-family: var(--font-condensed); font-size: 11px;
+  letter-spacing: var(--tracking-label); color: var(--text-caption);
+}
+.bm-card-open {
+  position: absolute; bottom: 8px; right: 8px; z-index: 1; display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border: none; border-radius: 50%; background: rgba(35, 31, 32, 0.55); color: #fff;
+  cursor: pointer; opacity: 0; transition: opacity var(--motion-fast), background var(--motion-fast);
+}
+.bm-card:hover .bm-card-open { opacity: 1; }
+.bm-card-open:hover { background: var(--green-500); color: var(--on-accent); }
+.bm-card-body { padding: var(--space-3) var(--space-4) var(--space-4); display: flex; flex-direction: column; gap: 6px; }
+.bm-card-name {
+  font-size: 13px; font-weight: 500; color: var(--text-body); line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bm-card-meta { font-family: var(--font-condensed); font-size: 12px; color: var(--text-caption); }
+.bm-card-dir {
+  display: flex; align-items: center; gap: 4px; font-family: var(--font-condensed); font-size: 12px; color: var(--text-caption);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bm-card-dir svg { flex-shrink: 0; opacity: 0.7; }
+.bm-card-tags { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
+
+/* ---- List view (alternate to the card grid, toggled via .bm-toolbar-view)
+   Each row is still a .bm-card — same element moveGridRow/scrollCardIntoView
+   query for keyboard nav — just laid out as a single-column table row instead
+   of a thumbnail tile, so no view-mode branching was needed there.
+
+   Column widths: thumb and open are fixed, Name is the flexible remainder,
+   and the rest read from --col-dir/--col-tags/--col-size/--col-date — plain
+   custom properties set on #grid-wrap itself (see applyListColWidths /
+   startColumnResize in renderer.js) and inherited from there by both the
+   header and every row, so a live resize drag only ever touches one element.
+   Never `auto` — a fixed/var()/minmax(_,1fr) track computes the same on every
+   independent per-row grid given the same container width, which is what
+   keeps the header and every row's columns aligned despite not sharing one
+   grid container. */
+.bm-list-header,
+.bm-grid.bm-grid-list .bm-card.bm-list-row {
+  display: grid;
+  grid-template-columns: 28px minmax(80px, 1fr) var(--col-dir, 140px) var(--col-tags, 130px) var(--col-size, 70px) var(--col-date, 110px) 24px;
+  align-items: center; gap: var(--space-3);
+}
+.bm-list-header {
+  height: 32px; padding: 0 var(--space-3); margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-rule-soft); flex-shrink: 0;
+}
+.bm-list-header-spacer { width: 100%; height: 100%; }
+.bm-list-header-sort {
+  position: relative; display: flex; align-items: center; gap: 5px; height: 100%; min-width: 0;
+  border: none; background: none; padding: 0; margin: 0; cursor: pointer; text-align: left;
+  font-family: var(--font-condensed); font-size: 11px; letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--text-caption);
+}
+.bm-list-header-sort:hover { color: var(--text-body); }
+.bm-list-header-sort.active { color: var(--accent-text); }
+.bm-list-header-sort span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-col-resize {
+  position: absolute; top: 0; right: calc(var(--space-3) / -2 - 1px); width: var(--space-3); height: 100%;
+  cursor: col-resize;
+}
+.bm-col-resize::after { content: ""; position: absolute; top: 4px; bottom: 4px; left: 50%; width: 1px; background: var(--border-hairline); }
+.bm-col-resize:hover::after { background: var(--accent-text); width: 2px; margin-left: -0.5px; }
+
+.bm-grid.bm-grid-list { display: flex; flex-direction: column; gap: 0; }
+.bm-grid.bm-grid-list .bm-card.bm-list-row {
+  height: 40px; padding: 0 var(--space-3);
+  border: 1px solid transparent; border-bottom: 1px solid var(--border-hairline); border-radius: 0;
+}
+.bm-grid.bm-grid-list .bm-card.bm-list-row:hover { border-color: transparent; background: var(--surface-card-alt); }
+.bm-grid.bm-grid-list .bm-card.bm-list-row.selected { border-color: var(--accent-text); box-shadow: none; background: var(--green-050); }
+.bm-list-thumb {
+  width: 28px; height: 28px; flex-shrink: 0; border-radius: var(--radius-control); overflow: hidden;
+  background: var(--surface-card-alt); border: 1px solid var(--border-hairline);
+  display: flex; align-items: center; justify-content: center;
+}
+.bm-list-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.bm-list-thumb svg { width: 14px; height: 17px; }
+.bm-list-name { font-size: 13px; color: var(--text-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-list-dir {
+  display: flex; align-items: center; gap: 4px; font-family: var(--font-condensed); font-size: 12px; color: var(--text-caption);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bm-list-dir svg { flex-shrink: 0; opacity: 0.7; }
+.bm-list-tags { display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; }
+.bm-list-size, .bm-list-date {
+  font-family: var(--font-condensed); font-size: 12px; color: var(--text-caption); text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bm-list-open {
+  width: 24px; height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; background: none; color: var(--text-muted); cursor: pointer;
+  opacity: 0; transition: opacity var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
+}
+.bm-grid.bm-grid-list .bm-card.bm-list-row:hover .bm-list-open { opacity: 1; }
+.bm-list-open:hover { background: var(--green-100); color: var(--accent-text); }
+
+.bm-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--text-muted); text-align: center; padding: var(--space-7);
+}
+.bm-empty svg { opacity: 0.5; margin-bottom: var(--space-3); }
+.bm-empty-title { font-size: 16px; font-weight: 600; color: var(--text-heading); margin-bottom: 6px; }
+.bm-empty-sub { font-size: 13px; max-width: 340px; line-height: 1.5; }
+
+/* ---- Tag component ----
+   Fill/text/border come from --tag-bg/--tag-color/--tag-border, set per instance
+   (see tagStyleAttr in renderer.js) so any user-picked tag color stays legible
+   — deliberately absolute, not theme-dependent. Only the no-custom-color
+   fallback below (the ", var(--green-100))" / ", var(--accent-text))" part)
+   is theme-aware, same as everywhere else that pairs the pale tint role with
+   accent text. */
+.bm-tag {
+  display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-condensed); font-size: 11px;
+  font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 4px 8px; border-radius: 999px;
+  border: 1px solid var(--tag-border, transparent); line-height: 1.3;
+  background: var(--tag-bg, var(--green-100)); color: var(--tag-color, var(--accent-text));
+}
+.bm-tag-more { font-family: var(--font-condensed); font-size: 11px; color: var(--text-caption); align-self: center; }
+.bm-tag-remove { border: none; background: none; padding: 0; display: flex; cursor: pointer; color: inherit; }
+.bm-tag-editor { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* ---- Preview pane ---- */
+.bm-preview { display: flex; flex-direction: column; padding: var(--space-5); gap: var(--space-4); min-height: 0; border-left: 1px solid var(--border-hairline); }
+.bm-preview-header-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.bm-preview-name {
+  font-size: 19px; font-weight: 600; color: var(--text-heading); line-height: 1.25;
+  overflow: hidden; text-overflow: ellipsis; word-break: break-word;
+}
+.bm-preview-meta { font-family: var(--font-condensed); font-size: 12px; letter-spacing: 0.04em; color: var(--text-caption); margin-top: 4px; word-break: break-word; }
+/* Kept well clear of "Open" (top-right, next to the filename) so a delete
+   click can't land right after an open click by accident. */
+.bm-preview-delete-row { display: flex; justify-content: flex-end; margin-top: var(--space-3); }
+.bm-preview-plate {
+  height: 260px; flex-shrink: 0; background: var(--surface-card-alt); border: 1px solid var(--border-hairline);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden;
+}
+.bm-preview-plate img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.bm-preview-plate embed { width: 100%; height: 100%; }
+.bm-preview-plate-doc { width: 150px; height: 200px; background: var(--surface-card); border: 1px solid var(--border-hairline); display: flex; flex-direction: column; gap: 7px; padding: 14px; }
+
+/* Inner wrapper the rotate button (review mode/mountRotatedPlate) transforms
+   and resizes — sized to the plate's own box, swapped when rotated 90°/270°,
+   so a portrait scan rotated onto its side still fills the plate instead of
+   overflowing or shrinking off-center. Shared by both plates below. */
+.bm-rotate-frame { display: flex; align-items: center; justify-content: center; transition: transform var(--motion-fast); }
+
+/* ---- Review mode ---- */
+/* Big single-file viewer that replaces the rail + file grid (see
+   renderReviewMain/.bm-body-review) — same plate treatment as the small
+   preview's .bm-preview-plate above, just filling the space instead of a
+   fixed 260px. */
+.bm-review-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--space-5) var(--space-6); gap: var(--space-4); }
+.bm-review-topbar { display: flex; flex-direction: column; gap: var(--space-2); }
+.bm-review-scope { font-size: 13px; color: var(--text-body); }
+.bm-review-controls-row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.bm-review-counter { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); }
+.bm-review-nav { display: flex; gap: var(--space-2); margin-left: auto; }
+.bm-review-plate {
+  flex: 1; min-height: 0; background: var(--surface-card-alt); border: 1px solid var(--border-hairline);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden;
+}
+.bm-review-plate img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.bm-review-plate embed { width: 100%; height: 100%; }
+.bm-preview-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+/* Hairline between sections (Location, Tags, Comments, …) — replaces the
+   old plain `gap` with the same spacing, now carried as padding-top so a
+   border-top has somewhere to sit; still no rule (or gap) before the first
+   section, same as `gap` never added space before/after the flex ends. A
+   small margin-bottom on every section but the last keeps the line off the
+   previous section's own content instead of sitting flush against it. */
+.bm-preview-scroll > *:not(:last-child) { margin-bottom: var(--space-2); }
+.bm-preview-scroll > * + * { padding-top: var(--space-5); border-top: 1px solid var(--border-hairline); }
+
+/* Nothing selected. Two shapes (see renderPreviewEmpty): no folder open at
+   all keeps the plain centered icon/message (.bm-preview-empty-inner
+   self-centers via margin:auto rather than the parent forcing it, so it
+   doesn't fight the OTHER shape's normal top-down flow below); a folder
+   open but nothing selected becomes a small dashboard — a highlighted
+   reminder card, then This folder/Recent sections in the ordinary
+   .bm-preview-scroll (same hairline-between-sections treatment the
+   single/multi-file preview's Tags/Comments sections already use). */
+.bm-preview-empty-inner { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); text-align: center; padding: var(--space-6); margin: auto; }
+.bm-preview-empty-icon svg { opacity: 0.5; }
+.bm-preview-empty-title { font-size: 15px; font-weight: 600; color: var(--text-heading); }
+.bm-preview-empty-hint { font-size: 12.5px; color: var(--text-muted); line-height: 1.5; max-width: 220px; }
+
+.bm-preview-empty-highlight {
+  background: var(--green-100); border-radius: 8px; padding: var(--space-5); text-align: center; flex-shrink: 0;
+}
+.bm-preview-empty-highlight .bm-preview-empty-title { margin-bottom: 6px; }
+.bm-preview-empty-highlight .bm-preview-empty-hint { max-width: none; }
+
+.bm-stat-list { display: flex; flex-direction: column; }
+.bm-stat-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: 11px 0; font-size: 13px; color: var(--text-body);
+}
+.bm-stat-row:not(:last-child) { border-bottom: 1px solid var(--border-hairline); }
+.bm-stat-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.bm-recent-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.bm-recent-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.bm-recent-item-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bm-recent-label { font-size: 13px; color: var(--text-body); line-height: 1.35; }
+.bm-recent-time { font-family: var(--font-condensed); font-size: 11.5px; letter-spacing: var(--tracking-label); color: var(--text-caption); }
+/* Per-row undo (see undoActionById) — reveal-on-hover, same pattern as the
+   grid/list card's own open-file button. */
+.bm-recent-undo-btn {
+  flex-shrink: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; background: none; color: var(--text-muted); cursor: pointer;
+  opacity: 0; transition: opacity var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
+}
+.bm-recent-item:hover .bm-recent-undo-btn { opacity: 1; }
+.bm-recent-undo-btn:hover { background: var(--green-100); color: var(--accent-text); }
+
+/* Multi-select preview — replaces the single big .bm-preview-plate with a
+   scrollable grid of mini thumbnails, one per selected file. Clicking one
+   narrows the selection back down to just that file. */
+.bm-preview-multi-grid {
+  height: 260px; flex-shrink: 0; background: var(--surface-card-alt); border: 1px solid var(--border-hairline);
+  overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: var(--space-3);
+  padding: var(--space-3);
+  align-content: start;
+}
+.bm-mini-card { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; }
+.bm-mini-thumb {
+  width: 56px; height: 56px; background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);
+  display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;
+}
+.bm-mini-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.bm-mini-thumb svg { width: 26px; height: 32px; }
+.bm-mini-card:hover .bm-mini-thumb { border-color: var(--green-300); }
+.bm-mini-name {
+  font-size: 10.5px; color: var(--text-caption); max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; text-align: center;
+}
+.bm-section-label {
+  display: flex; align-items: center; gap: 6px; font-family: var(--font-condensed); font-size: 12px;
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); margin-bottom: var(--space-2);
+}
+.bm-tag-add-row { margin-top: var(--space-2); }
+.bm-tag-hint { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.bm-inline-link { background: none; border: none; padding: 0; color: var(--accent-text); text-decoration: underline; cursor: pointer; font-size: 12px; font-family: inherit; }
+.bm-comments-list { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-2); }
+.bm-comment-row { display: flex; align-items: flex-start; gap: 6px; }
+.bm-comment-area {
+  flex: 1; min-width: 0; min-height: 70px; border: 1px solid var(--border-hairline); border-radius: var(--radius-control);
+  padding: 10px 12px; font-size: 13px; font-family: var(--font-sans); line-height: 1.55; resize: vertical; outline: none;
+  color: var(--text-body); background: var(--surface-card);
+}
+.bm-comment-area:focus { border-color: var(--accent-text); }
+.bm-comment-remove { flex-shrink: 0; border: none; background: none; color: var(--text-muted); cursor: pointer; display: flex; padding: 4px; margin-top: 2px; }
+.bm-comment-remove:hover { color: #9c4a3d; }
+/* ---- Modals (shared) ---- */
+.bm-modal-overlay { position: fixed; inset: 0; background: var(--overlay-scrim); display: flex; align-items: center; justify-content: center; z-index: 50; }
+
+/* ---- Manage tags modal ---- */
+.bm-modal {
+  width: 560px; max-width: calc(100vw - 40px); max-height: calc(100vh - 60px);
+  background: var(--surface-card); border-top: var(--rule-heavy) solid var(--border-rule); box-shadow: var(--shadow-modal);
+  display: flex; flex-direction: column; overflow: visible;
+}
+.bm-commenter-modal { width: 420px; }
+.bm-settings-modal { width: 460px; }
+.bm-settings-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+  padding: var(--space-3) 0; border-bottom: 1px solid var(--border-hairline);
+}
+.bm-settings-row:last-child { border-bottom: none; }
+.bm-settings-row-label { font-size: 13px; color: var(--text-body); font-weight: 500; }
+.bm-settings-row-value { font-size: 12px; color: var(--text-caption); margin-top: 2px; }
+.bm-theme-toggle { display: inline-flex; height: 34px; border: 1px solid var(--border-hairline); border-radius: var(--radius-control); overflow: hidden; flex-shrink: 0; }
+.bm-theme-toggle-btn {
+  padding: 0 12px; height: 100%; display: flex; align-items: center; justify-content: center;
+  border: none; background: var(--surface-card); color: var(--text-muted); font-size: 12.5px; cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.bm-theme-toggle-btn + .bm-theme-toggle-btn { border-left: 1px solid var(--border-hairline); }
+.bm-theme-toggle-btn:hover:not(.active) { background: var(--surface-card-alt); color: var(--text-body); }
+.bm-theme-toggle-btn.active { background: var(--accent-text); color: var(--on-accent); font-weight: 500; }
+.bm-modal-header { padding: var(--space-6) var(--space-6) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); flex-shrink: 0; }
+.bm-modal-title { font-size: 19px; font-weight: 600; color: var(--text-heading); }
+.bm-modal-sub { font-size: 13px; color: var(--text-muted); max-width: 52ch; line-height: 1.5; }
+.bm-modal-body { padding: 0 var(--space-6) var(--space-5); overflow-y: auto; overflow-x: visible; flex: 1; display: flex; flex-direction: column; gap: var(--space-3); }
+.bm-tagrow-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.bm-tagrow { display: grid; grid-template-columns: 32px 1fr 84px 28px; gap: var(--space-3); align-items: center; position: relative; }
+.bm-tagrow-swatch { height: 32px; width: 32px; padding: 0; border: 1px solid var(--border-hairline); border-radius: var(--radius-control); cursor: pointer; }
+.bm-tagrow-name { min-width: 0; }
+.bm-shortcut-btn {
+  width: 100%; border: 1px solid var(--border-hairline); background: var(--surface-card-alt); color: var(--text-muted);
+  border-radius: var(--radius-control); padding: 9px 8px; font-size: 11.5px; font-family: var(--font-condensed);
+  letter-spacing: 0.03em; cursor: pointer; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  height: 40px;
+}
+.bm-shortcut-btn:hover { border-color: var(--accent-text); color: var(--accent-text); }
+.bm-shortcut-btn.recording { border-color: #9c4a3d; color: #9c4a3d; background: #f6e9e6; }
+.bm-tagrow-remove { flex-shrink: 0; border: none; background: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; }
+.bm-tagrow-remove:hover { color: #9c4a3d; }
+.bm-add-tagrow-btn {
+  display: flex; align-items: center; gap: 6px; border: 1px dashed var(--border-hairline); background: none;
+  color: var(--accent-text); border-radius: var(--radius-control); padding: 10px; font-size: 12.5px; cursor: pointer;
+  width: 100%; justify-content: center;
+}
+.bm-add-tagrow-btn:hover { border-color: var(--accent-text); background: var(--green-100); }
+.bm-modal-footer { display: flex; justify-content: flex-end; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border-hairline); flex-shrink: 0; }
+
+/* ---- Color picker popover ----
+   Deliberately NOT themed — kept on a fixed light surface in every theme so
+   picking a tag's actual color stays visually accurate no matter which app
+   theme happens to be active (same reasoning as tag colors themselves being
+   theme-independent). */
+.bm-color-popover {
+  /* position: fixed (not absolute) so it escapes .bm-modal-body's overflow-y:
+     auto instead of being clipped — its top/left are set inline in JS from the
+     swatch's actual screen position once the popover is attached to the DOM. */
+  position: fixed; top: 0; left: 0; width: 300px; z-index: 5; background: var(--white);
+  border: 1px solid var(--gray-200); border-radius: var(--radius-control); box-shadow: var(--shadow-popover);
+  padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3);
+}
+.bm-sv-field { height: 148px; border-radius: var(--radius-control); position: relative; cursor: crosshair; user-select: none; touch-action: none; }
+.bm-sv-handle {
+  position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 999px;
+  border: 2px solid var(--white); box-shadow: 0 0 0 1px rgba(35, 31, 32, 0.4); pointer-events: none;
+}
+.bm-hue-row { display: flex; align-items: center; gap: var(--space-3); }
+.bm-hue-chip { width: 28px; height: 28px; border-radius: 999px; border: 1px solid var(--gray-200); flex-shrink: 0; }
+.bm-hue-slider {
+  flex: 1; height: 12px; border-radius: 999px; position: relative; cursor: pointer; user-select: none; touch-action: none;
+  background: linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000);
+}
+.bm-hue-handle {
+  position: absolute; top: -3px; width: 18px; height: 18px; margin-left: -9px; border-radius: 999px;
+  background: var(--white); border: 1px solid var(--gray-400); pointer-events: none;
+}
+.bm-rgb-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.bm-rgb-grid .bm-input { padding: 8px 10px; height: 36px; min-width: 0; background: var(--white); border-color: var(--gray-200); }
+.bm-picker-footer { display: flex; align-items: center; justify-content: space-between; padding-top: var(--space-1); border-top: 1px solid var(--gray-200); }
+.bm-hex-readout { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--gray-600); }
+
+/* ---- About window ---- */
+.bm-about-modal { width: 520px; max-width: calc(100vw - 40px); background: var(--surface-card); border: 1px solid var(--border-hairline); box-shadow: var(--shadow-modal); }
+.bm-about-chrome {
+  height: 38px; display: flex; align-items: center; justify-content: space-between; padding-left: 14px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.bm-about-chrome-title { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); }
+.bm-about-close { width: 42px; height: 38px; display: flex; align-items: center; justify-content: center; color: var(--gray-600); background: none; border: none; cursor: pointer; }
+.bm-about-close:hover { background: var(--surface-card-alt); }
+.bm-about-band { background: var(--surface-rail); color: var(--on-rail); padding: var(--space-6); display: flex; gap: var(--space-5); align-items: center; }
+.bm-about-title { font-size: 26px; font-weight: 600; letter-spacing: var(--tracking-tight); }
+.bm-about-tagline { font-size: 13px; color: color-mix(in srgb, var(--on-rail) 85%, transparent); }
+.bm-about-version { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); text-transform: uppercase; color: color-mix(in srgb, var(--on-rail) 75%, transparent); }
+.bm-about-rollback { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+.bm-about-rollback-btn {
+  display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+  background: none; border: none; border-bottom: 1px solid color-mix(in srgb, var(--on-rail) 40%, transparent); padding: 0;
+  font-family: inherit; font-size: 12px; color: color-mix(in srgb, var(--on-rail) 85%, transparent); cursor: pointer;
+}
+.bm-about-rollback-btn svg { flex-shrink: 0; }
+.bm-about-rollback-btn:hover:not(:disabled) { color: var(--on-rail); border-bottom-color: var(--on-rail); }
+.bm-about-rollback-btn:disabled { opacity: 0.5; cursor: default; }
+.bm-about-rollback-status { font-size: 11px; color: color-mix(in srgb, var(--on-rail) 60%, transparent); }
+.bm-about-body { padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-5); max-height: calc(100vh - 260px); overflow-y: auto; }
+.bm-about-desc { font-size: 13px; color: var(--text-muted); max-width: 56ch; line-height: 1.5; }
+.bm-about-credits-label { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); border-bottom: 1px solid var(--border-hairline); padding-bottom: 6px; margin-bottom: var(--space-3); }
+.bm-about-credits-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px var(--space-4); font-size: 13px; }
+.bm-about-credits-grid .bm-credit-name { color: var(--text-body); }
+.bm-about-credits-grid .bm-credit-role { color: var(--text-caption); }
+.bm-about-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding-top: var(--space-2); border-top: 1px solid var(--border-hairline); }
+.bm-about-repo-link { font-size: 13px; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
