@@ -127,11 +127,6 @@ function renderPage() {
             <input class="bm-input" id="field-ollamaHost" value="${escapeAttr(s.ollamaHost)}" placeholder="http://localhost:11434" />
           </label>
           <label class="bm-field">
-            <span class="bm-field-label">Verification passes</span>
-            <input class="bm-input" id="field-verificationPasses" type="number" min="1" max="10" value="${s.verificationPasses ?? 1}" placeholder="3" />
-            <span class="bo-toggle-label">1 = off (single read). Higher catches more likely misreads (flagged for review) but takes proportionally longer per image.</span>
-          </label>
-          <label class="bm-field">
             <span class="bm-field-label">Python path</span>
             <input class="bm-input" id="field-pythonPath" value="${escapeAttr(s.pythonPath)}" placeholder="python3" />
           </label>
@@ -140,6 +135,23 @@ function renderPage() {
           <span class="bo-toggle-label">Start automatically when this machine logs in</span>
           <label class="bm-checkbox-label">
             <input type="checkbox" id="field-openAtLogin" ${s.openAtLogin ? "checked" : ""} />
+          </label>
+        </div>
+      </div>
+
+      <div class="bo-card">
+        <div class="bo-card-label">Flagging</div>
+        <div class="bo-toggle-label">Flags claim fields worth double-checking in BillOCR Review — see the README's "Flagging likely misreads" section.</div>
+        <div class="bo-field-grid">
+          <label class="bm-field">
+            <span class="bm-field-label">Verification passes</span>
+            <input class="bm-input" id="field-verificationPasses" type="number" min="1" max="10" value="${s.verificationPasses ?? 1}" placeholder="3" />
+            <span class="bo-toggle-label">1 = off (single read). Higher catches more likely misreads but takes proportionally longer per image.</span>
+          </label>
+          <label class="bm-field">
+            <span class="bm-field-label">Check-pass temperature</span>
+            <input class="bm-input" id="field-checkPassTemperature" type="number" min="0" max="2" step="0.05" value="${s.checkPassTemperature ?? 0.5}" placeholder="0.5" />
+            <span class="bo-toggle-label">How much a check pass is allowed to vary from the primary read. Higher = more disagreement flags, but noisier ones. No effect when Verification passes is 1.</span>
           </label>
         </div>
       </div>
@@ -170,6 +182,10 @@ function renderPage() {
   bindField("#field-keepAlive", "keepAlive");
   bindField("#field-ollamaHost", "ollamaHost", null, (v) => checkOllama(v));
   bindField("#field-verificationPasses", "verificationPasses", (v) => Math.max(1, Number(v) || 1));
+  bindField("#field-checkPassTemperature", "checkPassTemperature", (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.max(0, n) : 0.5;
+  });
   bindField("#field-pythonPath", "pythonPath", null, (v) => checkPython(v));
   bindField("#field-openAtLogin", "openAtLogin");
 

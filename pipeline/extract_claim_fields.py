@@ -42,14 +42,16 @@ FORM_SPECS = {
     "UB04": {"fields": UB04_FIELDS, "prompt": UB04_PROMPT, "required": UB04_REQUIRED},
 }
 
-# Temperature for verification (check) passes -- deliberately higher than
-# the primary pass's default so repeated reads of the same image actually
-# vary enough to be a useful disagreement signal, rather than reproducing
-# the exact same (possibly wrong) answer every time. Not user-facing; the
-# primary pass is left at Ollama's own default (unset here) so turning
-# verification off (--verification-passes 1) is byte-identical to before
-# this feature existed. May need tuning once used against real claims.
-CHECK_PASS_TEMPERATURE = 0.5
+# Default temperature for verification (check) passes -- deliberately
+# higher than the primary pass's default so repeated reads of the same
+# image actually vary enough to be a useful disagreement signal, rather
+# than reproducing the exact same (possibly wrong) answer every time.
+# Now a --check-pass-temperature setting (see collect_disagreement_flags),
+# this is just its default. The primary pass is always left at Ollama's
+# own default (unset here) so turning verification off
+# (--verification-passes 1) is byte-identical to before this feature
+# existed, regardless of this value.
+DEFAULT_CHECK_PASS_TEMPERATURE = 0.5
 
 
 def extract_json_object(text: str) -> dict:
@@ -80,10 +82,11 @@ def missing_required(fields: dict, required: list) -> list:
 
 def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
                                 primary_fields: dict, field_specs: dict, verification_passes: int,
-                                logger, claim_id: str) -> dict:
+                                logger, claim_id: str,
+                                check_pass_temperature: float = DEFAULT_CHECK_PASS_TEMPERATURE) -> dict:
     """
     Runs (verification_passes - 1) additional resamples of the same
-    image/prompt at CHECK_PASS_TEMPERATURE and flags any field where a
+    image/prompt at check_pass_temperature and flags any field where a
     resample disagrees with the already-extracted primary read -- a
     self-consistency check (see the "OCR accuracy" plan/discussion): if
     the model reads something differently on a second or third look,
@@ -98,7 +101,7 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
         try:
             raw_text, _ = chat_with_thinking_fallback(
                 client, model, messages, keep_alive, response_format="json",
-                options={"temperature": CHECK_PASS_TEMPERATURE},
+                options={"temperature": check_pass_temperature},
             )
             check_fields = extract_json_object(raw_text)
         except Exception as exc:  # noqa: BLE001 -- a bad check pass shouldn't break extraction
@@ -198,7 +201,8 @@ def build_review_html(claim_id: str, form_type: str, image_rel_path: str,
 
 def process_one(path: Path, form_type: str, out_dir: Path, processed_dir: Path, errors_dir: Path,
                  client, model: str, host: str, keep_alive, logger, max_dim: Optional[int],
-                 verification_passes: int = 1) -> None:
+                 verification_passes: int = 1,
+                 check_pass_temperature: float = DEFAULT_CHECK_PASS_TEMPERATURE) -> None:
     if not wait_until_stable(path):
         logger.warning("%s never stabilized (still being written?) -- will retry next pass", path.name)
         return
@@ -224,6 +228,7 @@ def process_one(path: Path, form_type: str, out_dir: Path, processed_dir: Path, 
 
         flagged = collect_disagreement_flags(
             client, model, messages, keep_alive, fields, spec["fields"], verification_passes, logger, claim_id,
+            check_pass_temperature=check_pass_temperature,
         )
         for key, entries in field_validation.validate_fields(form_type, fields).items():
             flagged.setdefault(key, []).extend(entries)
@@ -277,7 +282,8 @@ def process_one(path: Path, form_type: str, out_dir: Path, processed_dir: Path, 
 def run(cms1500_in, ub04_in, out_dir, model: str = "qwen3-vl:8b-instruct",
         host: str = "http://localhost:11434", poll_interval: float = 2.0,
         keep_alive="30m", max_dim: Optional[int] = None, log_file: Optional[str] = None,
-        verification_passes: int = 1, logger=None) -> None:
+        verification_passes: int = 1, check_pass_temperature: float = DEFAULT_CHECK_PASS_TEMPERATURE,
+        logger=None) -> None:
     """
     Run the CMS-1500/UB-04 extraction watch loop. Blocks until interrupted.
     Pulled out of main() so billocr.py can run this alongside build_837.run()
@@ -289,6 +295,8 @@ def run(cms1500_in, ub04_in, out_dir, model: str = "qwen3-vl:8b-instruct",
     resamples per image (see collect_disagreement_flags) to flag fields
     that read differently across passes -- proportionally slower per
     image in exchange for a real signal on likely misreads.
+    check_pass_temperature: sampling temperature for those resamples only
+    (the primary read is unaffected); see DEFAULT_CHECK_PASS_TEMPERATURE.
     """
     cms1500_in = Path(cms1500_in)
     ub04_in = Path(ub04_in)
@@ -335,6 +343,7 @@ def run(cms1500_in, ub04_in, out_dir, model: str = "qwen3-vl:8b-instruct",
                     process_one(
                         path, form_type, out_dir, spec["processed_dir"], spec["errors_dir"],
                         client, model, host, keep_alive, logger, max_dim, verification_passes,
+                        check_pass_temperature,
                     )
             time.sleep(poll_interval)
     except KeyboardInterrupt:
@@ -355,6 +364,10 @@ def main() -> None:
                          help="Total reads per image (1 = off, just the primary read). Anything higher adds that "
                               "many resamples per image and flags fields that read differently across them -- "
                               "proportionally slower per image (default: 1)")
+    parser.add_argument("--check-pass-temperature", type=float, default=DEFAULT_CHECK_PASS_TEMPERATURE,
+                         help="Sampling temperature for verification (check) passes -- higher means more variation "
+                              f"between resamples, so more (but noisier) disagreement flags (default: {DEFAULT_CHECK_PASS_TEMPERATURE}). "
+                              "Has no effect if --verification-passes is 1.")
     parser.add_argument("--log-file", default=None)
     args = parser.parse_args()
 
@@ -362,7 +375,7 @@ def main() -> None:
         cms1500_in=args.cms1500_in, ub04_in=args.ub04_in, out_dir=args.out,
         model=args.model, host=args.host, poll_interval=args.poll_interval,
         keep_alive=args.keep_alive, max_dim=args.max_dim, log_file=args.log_file,
-        verification_passes=args.verification_passes,
+        verification_passes=args.verification_passes, check_pass_temperature=args.check_pass_temperature,
     )
 
 
