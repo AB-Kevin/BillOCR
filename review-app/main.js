@@ -41,6 +41,10 @@ function writeSettings(patch) {
 
 let mainWindow = null;
 let cachedSchema = null; // {CMS1500: {fields, required}, UB04: {...}} | null
+// Whether the current window has been told it's OK to actually close --
+// see createWindow()'s "close" handler and the app-flushed-before-close
+// handler further down.
+let closeFlushed = false;
 
 // --- Auto-update -----------------------------------------------------------
 // Driven entirely from the renderer's "Check for updates" control — never
@@ -309,12 +313,36 @@ function recomputeValidationFlags(pythonPath, formType, fields) {
   }
 }
 
-function saveClaim(workspaceFolder, claimId, fields) {
+// Resolves a flagged_fields key -- either a plain top-level field name, or
+// a line-item key in collect_disagreement_flags/field_validation.py's
+// "arrayKey[index].subKey" shape -- to that field's current value in
+// `fields`. Needed anywhere a flag key has to be compared against (or
+// snapshotted from) live field data, since `fields["service_lines[2].foo"]`
+// is not how nested values are actually stored.
+const FLAG_KEY_ITEM_RE = /^([^[]+)\[(\d+)\]\.(.+)$/;
+function valueAtFlagKey(fields, key) {
+  const m = FLAG_KEY_ITEM_RE.exec(key);
+  if (!m) return fields[key];
+  const [, arrayKey, idxStr, subKey] = m;
+  const item = (fields[arrayKey] || [])[Number(idxStr)];
+  return item && typeof item === "object" ? item[subKey] : undefined;
+}
+
+// dismissKey: set when called from claims-dismiss-flag (the review UI's
+// "Approve current value" action) -- clears every flag on that one field,
+// in addition to the normal save/recompute below.
+function saveClaim(workspaceFolder, claimId, fields, dismissKey) {
   const p = paths(workspaceFolder);
   const jsonPath = path.join(p.pendingReview, `${claimId}.json`);
   const record = readClaimRecord(jsonPath);
   const previousFields = record.fields || {};
   const previousFlagged = record.flagged_fields || {};
+  // Fields whose flags a reviewer has explicitly approved without changing
+  // the value -- keyed by flag key, value is a JSON snapshot of the field's
+  // value *at the moment of approval*. See the freshValidation merge below:
+  // this is what stops a still-technically-invalid-but-approved value from
+  // getting silently reflagged on every subsequent save.
+  const acknowledged = { ...(record.acknowledged_flags || {}) };
 
   record.fields = fields;
   record.missing_required_fields = recomputeMissing(record.form_type, fields);
@@ -329,7 +357,7 @@ function saveClaim(workspaceFolder, claimId, fields) {
   // human never touched.
   const flagged = {};
   for (const [key, entries] of Object.entries(previousFlagged)) {
-    const changed = JSON.stringify(previousFields[key]) !== JSON.stringify(fields[key]);
+    const changed = JSON.stringify(valueAtFlagKey(previousFields, key)) !== JSON.stringify(valueAtFlagKey(fields, key));
     const kept = changed ? entries.filter((e) => e.type !== "disagreement") : entries;
     if (kept.length) flagged[key] = kept;
   }
@@ -341,10 +369,23 @@ function saveClaim(workspaceFolder, claimId, fields) {
       if (flagged[key].length === 0) delete flagged[key];
     }
     for (const [key, entries] of Object.entries(freshValidation)) {
+      const snapshot = JSON.stringify(valueAtFlagKey(fields, key) ?? null);
+      if (acknowledged[key] === snapshot) continue; // still approved for this exact value
+      if (key in acknowledged) delete acknowledged[key]; // value moved on since the approval -- let it re-flag normally
       flagged[key] = [...(flagged[key] || []), ...entries];
     }
   }
+
+  if (dismissKey && flagged[dismissKey]) {
+    const hadValidation = flagged[dismissKey].some((e) => e.type === "validation");
+    delete flagged[dismissKey];
+    // Disagreement flags never get recomputed (no re-verification pass runs
+    // on save), so removing them here is permanent already -- only a
+    // validation flag needs the snapshot above to stay dismissed.
+    if (hadValidation) acknowledged[dismissKey] = JSON.stringify(valueAtFlagKey(fields, dismissKey) ?? null);
+  }
   record.flagged_fields = flagged;
+  record.acknowledged_flags = acknowledged;
 
   fs.writeFileSync(jsonPath, JSON.stringify(record, null, 2), "utf-8");
   return record;
@@ -354,6 +395,17 @@ ipcMain.handle("claims-save", (_e, { claimId, fields }) => {
   const settings = readSettings();
   if (!settings.workspaceFolder) throw new Error("No workspace folder chosen.");
   return saveClaim(settings.workspaceFolder, claimId, fields);
+});
+
+// "Approve current value" on a flagged field -- saves the form exactly like
+// claims-save (so no unsaved edits elsewhere on the page are lost), and
+// additionally clears every flag on `key`. See saveClaim's dismissKey
+// handling for why a validation flag needs an acknowledgment snapshot to
+// actually stay cleared, unlike a disagreement flag.
+ipcMain.handle("claims-dismiss-flag", (_e, { claimId, fields, key }) => {
+  const settings = readSettings();
+  if (!settings.workspaceFolder) throw new Error("No workspace folder chosen.");
+  return saveClaim(settings.workspaceFolder, claimId, fields, key);
 });
 
 function moveClaimFiles(workspaceFolder, claimId, destDirName) {
@@ -462,7 +514,38 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
   mainWindow.on("maximize", () => mainWindow.webContents.send("window-state", { maximized: true }));
   mainWindow.on("unmaximize", () => mainWindow.webContents.send("window-state", { maximized: false }));
+
+  // Everything autosaves now (see renderer.js's autosave engine), but a
+  // debounced edit or an in-flight save can still be pending at the exact
+  // moment the window closes -- without this, closing (or quitting) right
+  // after typing could lose that last bit, same gap the old Save button
+  // never actually protected against either. Intercept the close once per
+  // window, ask the renderer to flush and wait for its ack, then let it
+  // through -- see the app-flushed-before-close handler below (registered
+  // once at module scope, not here, since createWindow() can run again on
+  // mac's "activate" and ipcMain.handle can't be registered twice).
+  closeFlushed = false;
+  mainWindow.on("close", (event) => {
+    if (closeFlushed) return;
+    event.preventDefault();
+    mainWindow.webContents.send("app-before-close");
+    // Safety net in case the renderer never acks (crashed, wedged, etc.) --
+    // don't leave the window permanently un-closable.
+    setTimeout(() => {
+      if (!closeFlushed) {
+        closeFlushed = true;
+        mainWindow && mainWindow.close();
+      }
+    }, 3000);
+  });
 }
+
+// Registered once here (not inside createWindow, which can run again on
+// mac's "activate" -- ipcMain.handle can't be registered twice).
+ipcMain.handle("app-flushed-before-close", () => {
+  closeFlushed = true;
+  if (mainWindow) mainWindow.close();
+});
 
 app.whenReady().then(() => {
   loadSchema(readSettings().pythonPath);

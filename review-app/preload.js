@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("api", {
   listPendingClaims: () => ipcRenderer.invoke("claims-list-pending"),
   getClaim: (claimId) => ipcRenderer.invoke("claims-get", claimId),
   saveClaim: (claimId, fields) => ipcRenderer.invoke("claims-save", { claimId, fields }),
+  dismissFlag: (claimId, fields, key) => ipcRenderer.invoke("claims-dismiss-flag", { claimId, fields, key }),
   approveClaim: (claimId, fields) => ipcRenderer.invoke("claims-approve", { claimId, fields }),
   discardClaim: (claimId) => ipcRenderer.invoke("claims-discard", claimId),
   getClaimCounts: () => ipcRenderer.invoke("claims-counts"),
@@ -44,4 +45,8 @@ contextBridge.exposeInMainWorld("api", {
 
   onWindowState: subscribe("window-state"),
   onUpdateStatus: subscribe("update-status"),
+  // Autosave's flush-before-close handshake -- see main.js's "close"
+  // handler and renderer.js's init().
+  onBeforeClose: subscribe("app-before-close"),
+  notifyFlushedBeforeClose: () => ipcRenderer.invoke("app-flushed-before-close"),
 });

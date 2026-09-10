@@ -196,7 +196,7 @@ function renderRail() {
 }
 
 async function switchView(view) {
-  if (state.view === "review" && !(await confirmDiscardUnsavedChanges())) return;
+  if (state.view === "review") await flushAutosave();
   state.view = view;
   if (view === "queue") await loadQueue();
   if (view === "org") await loadOrg();
@@ -375,7 +375,7 @@ function nestedArrayChipHtml(value) {
 // flag keys); it's pinpointed to the one input that's actually wrong, with
 // its own reason text right under it. A brand-new line from "+ Add line"
 // has no flags yet, so this is omitted there.
-function objectArrayItemHtml(spec, item, itemFlags) {
+function objectArrayItemHtml(spec, item, itemFlags, arrayKey, index) {
   item = item && typeof item === "object" && !Array.isArray(item) ? item : {};
   itemFlags = itemFlags || {};
   const arraySubfields = spec.array_subfields || [];
@@ -386,7 +386,10 @@ function objectArrayItemHtml(spec, item, itemFlags) {
       const flagClass = flagEntries ? "flagged" : "";
       if (flagEntries) anyFieldFlagged = true;
       const flagHtml = flagEntries
-        ? `<span class="rv-line-item-flag-reason">⚠ ${escapeHtml(flagEntries.map((e) => e.reason).join("; "))}</span>`
+        ? `<span class="rv-line-item-flag-reason">${flagReasonHtml(`${arrayKey}[${index}].${subKey}`, flagEntries)}</span>${flagActionsHtml(
+            `${arrayKey}[${index}].${subKey}`,
+            flagEntries
+          )}`
         : "";
       if (arraySubfields.includes(subKey)) {
         const values = Array.isArray(item[subKey]) ? item[subKey] : [];
@@ -402,7 +405,7 @@ function objectArrayItemHtml(spec, item, itemFlags) {
       const v = item[subKey];
       return `<div class="rv-line-item-field ${flagClass}">
         <span class="rv-line-item-label">${escapeHtml(label)}</span>
-        <input class="bm-input" data-item-key="${escapeAttr(subKey)}" value="${escapeAttr(v == null ? "" : v)}" />
+        <input class="bm-input" data-item-key="${escapeAttr(subKey)}" data-focus-key="${escapeAttr(`${arrayKey}[${index}].${subKey}`)}" value="${escapeAttr(v == null ? "" : v)}" />
         ${flagHtml}
       </div>`;
     })
@@ -430,7 +433,7 @@ function renderArrayField(formType, key, value, flagged) {
   const spec = objectArrayItemSpec(formType, key);
   const kind = spec ? "object" : "string";
   const rowsHtml = spec
-    ? items.map((item, i) => objectArrayItemHtml(spec, item, itemFlagsFor(flagged, key, i))).join("")
+    ? items.map((item, i) => objectArrayItemHtml(spec, item, itemFlagsFor(flagged, key, i), key, i)).join("")
     : items.map((v) => stringArrayRowHtml(typeof v === "string" ? v : String(v ?? ""))).join("");
   const addLabel = spec ? "Add line" : "Add";
   return `<div class="rv-array-editor" id="field-${key}" data-array-field data-array-kind="${kind}">
@@ -452,17 +455,29 @@ function wireArrayEditors(root, formType) {
 
     const wireRow = (row) => {
       const removeBtn = row.querySelector(":scope > [data-array-remove]");
-      if (removeBtn) removeBtn.addEventListener("click", () => row.remove());
+      if (removeBtn)
+        removeBtn.addEventListener("click", () => {
+          row.remove();
+          scheduleAutosave(0);
+        });
       if (kind === "object") wireNestedArrays(row);
     };
     rowsEl.querySelectorAll(":scope > [data-array-row]").forEach(wireRow);
 
     addBtn.addEventListener("click", () => {
       const rowHtml =
-        kind === "object" ? objectArrayItemHtml(objectArrayItemSpec(formType, key) || { item_fields: {} }, {}, {}) : stringArrayRowHtml("");
+        kind === "object"
+          ? objectArrayItemHtml(objectArrayItemSpec(formType, key) || { item_fields: {} }, {}, {}, key, rowsEl.children.length)
+          : stringArrayRowHtml("");
       const row = el(rowHtml);
       rowsEl.appendChild(row);
       wireRow(row);
+      // A brand-new row has no values yet -- nothing meaningful to save
+      // until its inputs are filled in and blurred/paused-on, so this is
+      // really just to make missing_required_fields/flags reflect the new
+      // (empty) row's presence right away rather than only after the
+      // first keystroke in it.
+      scheduleAutosave(0);
     });
   });
 }
@@ -474,7 +489,11 @@ function wireNestedArrays(row) {
 
     const wireChip = (chip) => {
       const removeBtn = chip.querySelector("[data-nested-remove]");
-      if (removeBtn) removeBtn.addEventListener("click", () => chip.remove());
+      if (removeBtn)
+        removeBtn.addEventListener("click", () => {
+          chip.remove();
+          scheduleAutosave(0);
+        });
     };
     rowsEl.querySelectorAll(":scope > [data-nested-row]").forEach(wireChip);
 
@@ -482,6 +501,7 @@ function wireNestedArrays(row) {
       const chip = el(nestedArrayChipHtml(""));
       rowsEl.appendChild(chip);
       wireChip(chip);
+      scheduleAutosave(0);
     });
   });
 }
@@ -529,6 +549,136 @@ function readArrayField(formType, key, container) {
   });
 }
 
+// --- Flag actions --------------------------------------------------------
+// Turns a field's flag reasons into three ways to resolve it (see main.js's
+// claims-dismiss-flag and saveClaim's dismissKey handling for the backend
+// half of this):
+//   1. "Approve current value" -- dismisses the flag(s) as-is, no edit.
+//   2. "Use pass N: <value>" -- one per disagreement entry that carries a
+//      structured alternate value (see extract_claim_fields.py's
+//      collect_disagreement_flags) -- fills the field in, same as typing it
+//      by hand.
+//   3. Manually enter a value -- no dedicated control; the field is already
+//      a normal editable input right above these actions.
+// Options 2 and 3 clear the flag the same way any manual edit already does
+// (on the next Save, via saveClaim's changed-value check) -- only option 1
+// needs its own round-trip, since it isn't a value edit at all.
+const FLAG_KEY_ITEM_RE = /^([^[]+)\[(\d+)\]\.(.+)$/;
+
+// The ⚠ reason text itself -- no separate "Use pass N: value" button/label;
+// a disagreement entry's own reason ("pass 2 read 'X' instead of 'Y'") IS
+// the link, wherever it has a structured alternate value to apply (see
+// extract_claim_fields.py's collect_disagreement_flags). A validation
+// entry (no alternate value to offer) or a legacy disagreement entry from
+// before "value"/"pass" existed on disk just renders as plain text, same
+// as always.
+function flagReasonHtml(key, entries) {
+  if (!entries || entries.length === 0) return "";
+  const parts = entries.map((e) => {
+    if (e.type === "disagreement" && e.value !== undefined) {
+      return `<button type="button" class="rv-flag-reason-link" data-flag-use="${escapeAttr(key)}" data-flag-value="${escapeAttr(
+        JSON.stringify(e.value)
+      )}">${escapeHtml(e.reason)}</button>`;
+    }
+    return escapeHtml(e.reason);
+  });
+  return `⚠ ${parts.join("; ")}`;
+}
+
+function flagActionsHtml(key, entries) {
+  if (!entries || entries.length === 0) return "";
+  return `
+    <div class="rv-flag-actions">
+      <button type="button" class="rv-flag-action rv-flag-approve" data-flag-approve="${escapeAttr(key)}">Approve current value</button>
+    </div>`;
+}
+
+// Applies an alternate value to whatever input represents `key` -- a plain
+// field, a boolean toggle, a whole string-array field, or one line item's
+// sub-field/nested-array (see readArrayField/wireArrayEditors for the same
+// DOM shape read back on Save). Exactly like typing the value in by hand:
+// doesn't touch flagged_fields itself, doesn't save.
+function setFieldValue(key, value) {
+  const m = FLAG_KEY_ITEM_RE.exec(key);
+  if (m) {
+    setLineItemValue(m[1], Number(m[2]), m[3], value);
+    return;
+  }
+  const node = document.getElementById(`field-${key}`);
+  if (!node) return;
+  if (node.dataset.boolToggle !== undefined) {
+    const strVal = value === true || value === "true" ? "true" : "false";
+    node.dataset.value = strVal;
+    node.querySelectorAll("[data-bool-set]").forEach((b) => b.classList.toggle("active", b.dataset.boolSet === strVal));
+    return;
+  }
+  if (node.dataset.arrayField !== undefined) {
+    // Whole-array disagreement -- only possible for plain string arrays
+    // (diagnosis_codes, etc.); object arrays (service_lines, ...) are
+    // always compared line-by-line, so their flags are always the
+    // per-line-item case above instead. See collect_disagreement_flags.
+    const rowsEl = node.querySelector(":scope > .rv-array-rows");
+    rowsEl.innerHTML = "";
+    (Array.isArray(value) ? value : []).forEach((v) => {
+      const row = el(stringArrayRowHtml(typeof v === "string" ? v : String(v ?? "")));
+      rowsEl.appendChild(row);
+      row.querySelector("[data-array-remove]")?.addEventListener("click", () => row.remove());
+    });
+    return;
+  }
+  node.value = value == null ? "" : String(value);
+}
+
+function setLineItemValue(arrayKey, index, subKey, value) {
+  const container = document.getElementById(`field-${arrayKey}`);
+  if (!container) return;
+  const row = container.querySelectorAll(":scope > .rv-array-rows > [data-array-row]")[index];
+  if (!row) return;
+  const input = row.querySelector(`[data-item-key="${subKey}"]`);
+  if (input) {
+    input.value = value == null ? "" : String(value);
+    return;
+  }
+  const nested = row.querySelector(`[data-nested-array][data-nested-key="${subKey}"]`);
+  if (!nested) return;
+  const rowsEl = nested.querySelector(".rv-nested-rows");
+  rowsEl.innerHTML = "";
+  (Array.isArray(value) ? value : []).forEach((v) => {
+    const chip = el(nestedArrayChipHtml(v));
+    rowsEl.appendChild(chip);
+    chip.querySelector("[data-nested-remove]")?.addEventListener("click", () => chip.remove());
+  });
+}
+
+// "Approve current value" -- saves the whole form exactly like a routine
+// autosave (so no edits elsewhere on the page are lost) and dismisses every
+// flag on `key` at the same time. See main.js's claims-dismiss-flag.
+async function dismissFlag(key) {
+  // Cancel any pending debounced autosave -- its own upcoming save would be
+  // redundant with (and could otherwise land right after and re-render
+  // over) this one.
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  }
+  await flushAutosave(); // let any already-in-flight autosave land first
+  const { fields, errors } = readFormFields();
+  if (errors.length) {
+    state.reviewError = "Fix invalid JSON before approving this flag:\n" + errors.map((e) => e.message).join("\n");
+    render();
+    return;
+  }
+  state.busy = true;
+  render();
+  const record = await window.api.dismissFlag(state.currentClaim.record.claim_id, fields, key);
+  state.currentClaim.record = record;
+  state.reviewError = null;
+  state.saveStatus = "Saved";
+  syncQueueEntry(record);
+  state.busy = false;
+  render();
+}
+
 async function openClaim(index) {
   const summary = state.pendingList[index];
   if (!summary) return;
@@ -539,15 +689,10 @@ async function openClaim(index) {
   state.reviewError = null;
   state.saveStatus = null;
   render();
-}
-
-async function confirmDiscardUnsavedChanges() {
-  if (state.view !== "review" || !state.currentClaim) return true;
-  const read = readFormFields();
-  if (read.errors.length) return true; // can't compare cleanly; let them navigate away from broken JSON
-  const changed = JSON.stringify(read.fields) !== JSON.stringify(state.currentClaim.record.fields);
-  if (!changed) return true;
-  return window.confirm("You have unsaved changes to this claim. Discard them?");
+  // Save right on open (per Kevin's ask) -- a no-op content-wise unless
+  // something about the recompute (missing/validation flags) differs from
+  // what's already on disk; existing flags aren't touched (no dismissKey).
+  scheduleAutosave(0);
 }
 
 function readFormFields() {
@@ -576,28 +721,107 @@ function readFormFields() {
 }
 
 async function navigateClaim(delta) {
-  if (!(await confirmDiscardUnsavedChanges())) return;
+  await flushAutosave();
   const next = state.selectedIndex + delta;
   if (next < 0 || next >= state.pendingList.length) return;
   await openClaim(next);
 }
 
-async function doSave() {
-  const { fields, errors } = readFormFields();
-  if (errors.length) {
-    state.reviewError = "Fix invalid JSON before saving:\n" + errors.map((e) => e.message).join("\n");
-    render();
-    return;
+// --- Autosave -------------------------------------------------------------
+// Everything here replaces what used to be a single "Save" button: opening
+// a claim, typing in a field, toggling a checkbox, adding/removing a line
+// item, or picking a flag's alternate value all schedule an autosave --
+// there's nothing left for a person to remember to click.
+//
+// Two things make this safe rather than glitchy:
+//
+// 1. Typing is debounced (AUTOSAVE_DEBOUNCE_MS after the last keystroke, or
+//    immediately on blur/any discrete action) instead of firing on every
+//    keystroke -- a save spawns a Python subprocess (validate_fields.py) on
+//    every call, so per-character saves would both lag noticeably and race
+//    each other. runAutosave()/flushAutosave() below coalesce any autosaves
+//    requested while one is already in flight into a single follow-up
+//    (using whatever's newest at the time it actually runs), rather than
+//    piling up one call per keystroke.
+//
+// 2. performAutosave() only calls the full render() -- which is what
+//    refreshes flag/missing-field indicators -- when NOTHING has changed
+//    since the fields it's about to save were read from the DOM (no
+//    pending debounce, nothing queued up behind this save). That's the
+//    difference between "safe" and "glitchy": render() rebuilds every
+//    input from `record.fields`, so rendering while the round-trip is still
+//    in flight and the user has kept typing would revert those newer,
+//    not-yet-saved keystrokes right back out of the DOM. Skipping the
+//    render in that case doesn't lose anything -- the DOM already shows
+//    whatever's newest; it's *rendering* here that would be destructive,
+//    not skipping it. Whichever save eventually settles with nothing
+//    pending behind it is the one that renders.
+const AUTOSAVE_DEBOUNCE_MS = 700;
+let autosaveTimer = null;
+let autosaveInFlight = null;
+let autosavePending = false;
+
+function scheduleAutosave(delayMs = AUTOSAVE_DEBOUNCE_MS) {
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null;
+    runAutosave();
+  }, delayMs);
+}
+
+function runAutosave() {
+  if (autosaveInFlight) {
+    autosavePending = true;
+    return autosaveInFlight;
   }
-  state.busy = true;
-  render();
-  const record = await window.api.saveClaim(state.currentClaim.record.claim_id, fields);
+  autosaveInFlight = performAutosave().finally(() => {
+    autosaveInFlight = null;
+    if (autosavePending) {
+      autosavePending = false;
+      runAutosave();
+    }
+  });
+  return autosaveInFlight;
+}
+
+// Cancels any pending debounce and waits for a save to actually land --
+// used before anything that could otherwise lose an edit: switching
+// claims, Approve/Discard, and (see main.js/preload.js) closing the window
+// or quitting the app.
+async function flushAutosave() {
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    runAutosave();
+  }
+  while (autosaveInFlight) await autosaveInFlight;
+}
+
+function patchSaveStatus() {
+  const node = document.getElementById("save-status");
+  if (node) node.textContent = state.saveStatus || "";
+}
+
+async function performAutosave() {
+  if (!state.currentClaim) return;
+  const claimId = state.currentClaim.record.claim_id;
+  const { fields, errors } = readFormFields();
+  if (errors.length) return; // readFormFields never actually produces these today; guard anyway
+  state.saveStatus = "Saving…";
+  patchSaveStatus();
+  const record = await window.api.saveClaim(claimId, fields);
+  // The reviewer may have already navigated away (or the claim left the
+  // queue via Approve/Discard) by the time this resolves -- don't apply a
+  // stale result on top of whatever's showing now.
+  if (!state.currentClaim || state.currentClaim.record.claim_id !== claimId) return;
   state.currentClaim.record = record;
-  state.reviewError = null;
-  state.saveStatus = "Saved.";
   syncQueueEntry(record);
-  state.busy = false;
-  render();
+  state.saveStatus = "Saved";
+  if (!autosaveTimer && !autosavePending) {
+    render();
+  } else {
+    patchSaveStatus();
+  }
 }
 
 function syncQueueEntry(record) {
@@ -613,6 +837,7 @@ function syncQueueEntry(record) {
 }
 
 async function doApprove() {
+  await flushAutosave(); // no in-flight/pending autosave should be able to land after this one
   const { fields, errors } = readFormFields();
   if (errors.length) {
     state.reviewError = "Fix invalid JSON before approving:\n" + errors.map((e) => e.message).join("\n");
@@ -655,6 +880,7 @@ async function doApprove() {
 
 async function doDiscard() {
   if (!window.confirm("Discard this claim? It will be moved aside (not deleted) and removed from the queue.")) return;
+  await flushAutosave(); // no in-flight/pending autosave should be able to land after this one
   state.busy = true;
   render();
   await window.api.discardClaim(state.currentClaim.record.claim_id);
@@ -719,7 +945,7 @@ function renderReviewView() {
         inputHtml = `<input class="bm-input" id="field-${key}" value="${escapeAttr(value == null ? "" : value)}" />`;
       }
       const flagHtml = flagEntries
-        ? `<span class="rv-field-flag-reason">⚠ ${escapeHtml(flagEntries.map((e) => e.reason).join("; "))}</span>`
+        ? `<span class="rv-field-flag-reason">${flagReasonHtml(key, flagEntries)}</span>${flagActionsHtml(key, flagEntries)}`
         : "";
       return `
         <div class="bm-field rv-field ${isMissing ? "missing" : ""} ${flagEntries ? "flagged" : ""}">
@@ -763,7 +989,6 @@ function renderReviewView() {
           <div class="rv-review-form-pane">${formRows}</div>
         </div>
         <div class="rv-review-actions">
-          <button class="bm-btn bm-btn-secondary" id="save-claim" ${state.busy ? "disabled" : ""}>Save</button>
           <button class="bm-btn bm-btn-danger" id="discard-claim" ${state.busy ? "disabled" : ""}>Discard</button>
           <span class="bm-btn-ghost-spacer"></span>
           <span class="rv-review-counter" id="save-status">${state.saveStatus || ""}</span>
@@ -776,7 +1001,6 @@ function renderReviewView() {
   main.querySelector("#back-to-queue").addEventListener("click", () => switchView("queue"));
   main.querySelector("#prev-claim").addEventListener("click", () => navigateClaim(-1));
   main.querySelector("#next-claim").addEventListener("click", () => navigateClaim(1));
-  main.querySelector("#save-claim").addEventListener("click", doSave);
   main.querySelector("#discard-claim").addEventListener("click", doDiscard);
   main.querySelector("#approve-claim").addEventListener("click", doApprove);
   wireBooleanToggles(main);
@@ -784,6 +1008,28 @@ function renderReviewView() {
 
   wireImagePane(main, imagePath);
   wireResizeHandle(main);
+
+  main.querySelectorAll("[data-flag-approve]").forEach((btn) => {
+    btn.addEventListener("click", () => dismissFlag(btn.dataset.flagApprove));
+  });
+  main.querySelectorAll("[data-flag-use]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setFieldValue(btn.dataset.flagUse, JSON.parse(btn.dataset.flagValue));
+      scheduleAutosave(0);
+    });
+  });
+
+  // Autosave triggers -- delegated so every text input/textarea (including
+  // ones inside dynamically added line items) is covered without wiring
+  // each one individually. "input" debounces (typing); "focusout" (blur,
+  // unlike "blur" itself, bubbles) saves right away, so tabbing/clicking to
+  // the next field doesn't wait out the full debounce.
+  main.addEventListener("input", (e) => {
+    if (e.target.matches("input, textarea")) scheduleAutosave();
+  });
+  main.addEventListener("focusout", (e) => {
+    if (e.target.matches("input, textarea")) scheduleAutosave(0);
+  });
 
   return main;
 }
@@ -800,6 +1046,7 @@ function wireBooleanToggles(root) {
         toggle.querySelectorAll("[data-bool-set]").forEach((b) => {
           b.classList.toggle("active", b.dataset.boolSet === btn.dataset.boolSet);
         });
+        scheduleAutosave(0);
       });
     });
   });
@@ -1070,10 +1317,16 @@ function render() {
   // scrolled, or a field still has focus) rather than resetting to the top.
   const prevScrollEl = document.querySelector(".rv-main");
   const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : 0;
+  // Prefer data-focus-key over a plain id: line-item sub-field inputs
+  // (service_lines[i].cpt_hcpcs_code, etc.) have no unique id of their own,
+  // only this key -- without it, autosave's frequent re-renders would kick
+  // focus/cursor position out of a line-item field on every save, which
+  // (unlike the old explicit Save button) now happens continuously while
+  // typing. See objectArrayItemHtml.
   const active = document.activeElement;
-  const focusId = active && active.id && app.contains(active) ? active.id : null;
+  const focusKey = active && app.contains(active) ? active.dataset.focusKey || active.id || null : null;
   const selection =
-    focusId && typeof active.selectionStart === "number" ? { start: active.selectionStart, end: active.selectionEnd } : null;
+    focusKey && typeof active.selectionStart === "number" ? { start: active.selectionStart, end: active.selectionEnd } : null;
 
   app.innerHTML = "";
   const frag = document.createDocumentFragment();
@@ -1091,8 +1344,8 @@ function render() {
 
   const newScrollEl = document.querySelector(".rv-main");
   if (newScrollEl) newScrollEl.scrollTop = prevScrollTop;
-  if (focusId) {
-    const restored = document.getElementById(focusId);
+  if (focusKey) {
+    const restored = document.querySelector(`[data-focus-key="${focusKey}"]`) || document.getElementById(focusKey);
     if (restored) {
       restored.focus();
       if (selection && typeof restored.setSelectionRange === "function") {
@@ -1112,4 +1365,11 @@ function render() {
 
   window.api.onUpdateStatus((status) => setUpdateStatus(status));
   checkForUpdates(); // not awaited -- a startup check shouldn't hold up opening the queue
+
+  // main.js intercepts the window's close (and app quit) to give autosave
+  // a chance to flush first -- see its "close" handler's comment.
+  window.api.onBeforeClose(async () => {
+    await flushAutosave();
+    window.api.notifyFlushedBeforeClose();
+  });
 })();

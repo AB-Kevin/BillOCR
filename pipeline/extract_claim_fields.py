@@ -145,8 +145,11 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
     field_specs/primary_fields actually use, not the split keys the model
     was asked to emit.
 
-    Returns {field_key: [{"type": "disagreement", "reason": ...}, ...]},
-    empty if verification_passes <= 1 or nothing disagreed.
+    Returns {field_key: [{"type": "disagreement", "pass": i, "value": ...,
+    "reason": ...}, ...]}, empty if verification_passes <= 1 or nothing
+    disagreed. "value" is the raw (already-normalized) alternate reading
+    from that pass -- Review's "use pass N's value" action applies it
+    directly instead of parsing it back out of "reason"'s prose.
     """
     flags: dict = {}
     for i in range(2, verification_passes + 1):
@@ -189,6 +192,12 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
                             flag_key = f"{key}[{idx}].{sub_key}"
                             flags.setdefault(flag_key, []).append({
                                 "type": "disagreement",
+                                "pass": i,
+                                # Structured, not just embedded in `reason` --
+                                # Review's "use pass N's value" action reads
+                                # this directly rather than parsing Python's
+                                # repr() formatting back out of prose.
+                                "value": c_item.get(sub_key),
                                 "reason": f"pass {i} read {c_item.get(sub_key)!r} instead of {p_item.get(sub_key)!r}",
                             })
                             disagreed.append(flag_key)
@@ -196,6 +205,8 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
             if not field_validation.values_equivalent(primary_val, check_val):
                 flags.setdefault(key, []).append({
                     "type": "disagreement",
+                    "pass": i,
+                    "value": check_val,
                     "reason": f"pass {i} read {check_val!r} instead of {primary_val!r}",
                 })
                 disagreed.append(key)
