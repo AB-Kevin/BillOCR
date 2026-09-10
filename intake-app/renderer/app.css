@@ -5,9 +5,19 @@
    rail/main/preview grid. */
 
 .bo-page { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-5); }
-.bo-title-row { display: flex; align-items: baseline; justify-content: space-between; }
+.bo-title-row { display: flex; align-items: flex-start; justify-content: space-between; }
 .bo-title { font-size: 22px; font-weight: 600; color: var(--text-heading); letter-spacing: var(--tracking-tight); }
+.bo-version-group { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
 .bo-version { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); color: var(--text-caption); }
+
+/* "Check for updates" control next to the version number -- same states as
+   BillManager's rail footer, but styled for this app's light background
+   (BillManager/Review's equivalent .bm-rail-update-row lives in the shared
+   styles.css and assumes a dark rail; this app has no rail). */
+.bo-update-row { font-size: 12px; color: var(--text-caption); }
+.bo-update-clickable { cursor: pointer; }
+.bo-update-clickable:hover { color: var(--text-heading); }
+.bo-update-error { color: #9c4a3d; }
 
 .bo-card {
   background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);

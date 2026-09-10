@@ -36,7 +36,13 @@ contextBridge.exposeInMainWorld("api", {
   openFolder: (folderPath) => ipcRenderer.invoke("shell-open-folder", folderPath),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
 
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  downloadUpdate: () => ipcRenderer.invoke("download-update"),
+  quitAndInstall: () => ipcRenderer.invoke("quit-and-install"),
+  openReleasePage: (tag) => ipcRenderer.invoke("open-release-page", tag),
+
   onPipelineLog: subscribe("pipeline:log"),
   onPipelineExited: subscribe("pipeline:exited"),
   onWindowState: subscribe("window-state"),
+  onUpdateStatus: subscribe("update-status"),
 });

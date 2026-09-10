@@ -11,6 +11,8 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { execFile, execFileSync } = require("child_process");
+const { autoUpdater } = require("electron-updater");
+const { PrefixedGitHubProvider } = require("./updateProvider");
 
 const PIPELINE_DIR = app.isPackaged
   ? path.join(process.resourcesPath, "pipeline")
@@ -39,6 +41,81 @@ function writeSettings(patch) {
 
 let mainWindow = null;
 let cachedSchema = null; // {CMS1500: {fields, required}, UB04: {...}} | null
+
+// --- Auto-update -----------------------------------------------------------
+// Driven entirely from the renderer's "Check for updates" control — never
+// checked or downloaded silently in the background, so nothing happens on
+// the user's bandwidth/disk without them asking for it first.
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
+// Lets "Check for updates" actually hit GitHub when running unpacked (npm
+// start), reading dev-app-update.yml instead of silently no-op'ing. Has no
+// effect on a packaged build.
+autoUpdater.forceDevUpdateConfig = true;
+// See updateProvider.js for why this app can't use electron-updater's stock
+// GitHub provider as-is: Intake and Review share one GitHub repo, and the
+// stock provider's "latest release" lookup is repo-wide, not per app.
+autoUpdater.setFeedURL({ provider: "custom", updateProvider: PrefixedGitHubProvider });
+
+// Mac builds are only ad-hoc signed (no paid Apple Developer ID), which is
+// enough for the app to launch but not enough for Squirrel.Mac -- the
+// mechanism electron-updater uses under the hood on macOS -- to silently
+// install an update; it requires a real Developer ID signature to do that.
+// So on Mac, "checking for updates" still works (it just reads the version
+// info electron-builder publishes), but instead of downloading/installing
+// in-app, we hand the user off to that release's GitHub page to grab the
+// new .dmg themselves.
+const IS_MAC = process.platform === "darwin";
+
+function sendUpdateStatus(status) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-status", status);
+  }
+}
+
+autoUpdater.on("checking-for-update", () => {
+  sendUpdateStatus({ state: "checking" });
+});
+autoUpdater.on("update-available", (info) => {
+  if (IS_MAC) {
+    sendUpdateStatus({ state: "available-manual", version: info.version, tag: info.tag });
+  } else {
+    sendUpdateStatus({ state: "available", version: info.version });
+  }
+});
+autoUpdater.on("update-not-available", () => {
+  sendUpdateStatus({ state: "not-available" });
+});
+autoUpdater.on("download-progress", (progress) => {
+  sendUpdateStatus({ state: "downloading", percent: Math.round(progress.percent) });
+});
+autoUpdater.on("update-downloaded", (info) => {
+  sendUpdateStatus({ state: "downloaded", version: info.version });
+});
+autoUpdater.on("error", (err) => {
+  sendUpdateStatus({ state: "error", message: (err && err.message) || String(err) });
+});
+
+ipcMain.handle("check-for-updates", async () => {
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (err) {
+    sendUpdateStatus({ state: "error", message: err.message });
+  }
+});
+ipcMain.handle("download-update", async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+  } catch (err) {
+    sendUpdateStatus({ state: "error", message: err.message });
+  }
+});
+ipcMain.handle("quit-and-install", () => {
+  autoUpdater.quitAndInstall();
+});
+ipcMain.handle("open-release-page", (_e, tag) => {
+  shell.openExternal(`https://github.com/AB-Kevin/BillOCR/releases/tag/${tag}`);
+});
 
 function loadSchema(pythonPath) {
   try {

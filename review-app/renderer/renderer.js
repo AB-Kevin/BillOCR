@@ -24,6 +24,7 @@ const state = {
   orgSeededNotice: false,
   workspaceCorrectedNotice: null,
   pythonCheck: null, // {ok, version} | {ok:false, error} | null (checking)
+  updateStatus: { state: "idle" }, // idle | checking | available | available-manual | downloading | downloaded | not-available | error
 };
 
 function el(html) {
@@ -73,6 +74,79 @@ function renderTitlebar() {
   return bar;
 }
 
+// ---- Updates ----
+// The main process owns autoUpdater (against updateProvider.js's custom,
+// Review-only feed -- see its own comment) and only reports status back
+// over "update-status"; nothing here talks to GitHub directly. Same
+// state-machine shape as BillManager's renderer.js.
+//
+// "not-available" is shown only briefly: after the startup auto-check
+// confirms there's nothing new, sitting on "Up to date" forever would be a
+// permanent, slightly odd fixture in the rail footer -- it reverts back to
+// the plain "Check for updates" button on its own instead. Every other
+// status (available/downloading/downloaded/error) is left as-is, since
+// those need a person to actually do something about them.
+const NOT_AVAILABLE_DISPLAY_MS = 4000;
+let notAvailableResetTimer = null;
+
+function setUpdateStatus(status) {
+  if (notAvailableResetTimer) {
+    clearTimeout(notAvailableResetTimer);
+    notAvailableResetTimer = null;
+  }
+  state.updateStatus = status;
+  render();
+  if (status.state === "not-available") {
+    notAvailableResetTimer = setTimeout(() => {
+      notAvailableResetTimer = null;
+      state.updateStatus = { state: "idle" };
+      render();
+    }, NOT_AVAILABLE_DISPLAY_MS);
+  }
+}
+
+async function checkForUpdates() {
+  setUpdateStatus({ state: "checking" });
+  await window.api.checkForUpdates();
+}
+async function downloadUpdate() {
+  setUpdateStatus({ ...state.updateStatus, state: "downloading", percent: 0 });
+  await window.api.downloadUpdate();
+}
+function restartToInstall() {
+  window.api.quitAndInstall();
+}
+// Mac builds can't silently install (see main.js's IS_MAC comment), so an
+// available update there just opens that release's GitHub page.
+function openReleasePage() {
+  window.api.openReleasePage(state.updateStatus.tag);
+}
+
+function renderUpdateAction() {
+  const s = state.updateStatus;
+  if (s.state === "checking") return `<span class="bm-rail-update-row">Checking for updates…</span>`;
+  if (s.state === "available") return `<button class="bm-btn bm-btn-primary bm-btn-maroon bm-btn-sm bm-btn-block" id="update-download">Download update ${s.version}</button>`;
+  if (s.state === "available-manual") return `<button class="bm-btn bm-btn-primary bm-btn-maroon bm-btn-sm bm-btn-block" id="update-manual">Get update ${s.version}</button>`;
+  if (s.state === "downloading") return `<span class="bm-rail-update-row">Downloading… ${s.percent ?? 0}%</span>`;
+  if (s.state === "downloaded") return `<button class="bm-btn bm-btn-reversed bm-btn-sm bm-btn-block" id="update-restart">Restart to install</button>`;
+  if (s.state === "not-available") return `<span class="bm-rail-update-row bm-rail-update-clickable" id="update-recheck">Up to date</span>`;
+  if (s.state === "error") return `<span class="bm-rail-update-row bm-rail-update-error bm-rail-update-clickable" id="update-recheck" title="${escapeAttr(s.message || "")}">Update check failed</span>`;
+  return `<button class="bm-btn bm-btn-reversed bm-btn-sm bm-btn-block" id="update-check">Check for updates</button>`;
+}
+
+function bindUpdateAction(rail) {
+  const checkBtn = rail.querySelector("#update-check");
+  if (checkBtn) checkBtn.addEventListener("click", checkForUpdates);
+  const downloadBtn = rail.querySelector("#update-download");
+  if (downloadBtn) downloadBtn.addEventListener("click", downloadUpdate);
+  const manualBtn = rail.querySelector("#update-manual");
+  if (manualBtn) manualBtn.addEventListener("click", openReleasePage);
+  const restartBtn = rail.querySelector("#update-restart");
+  if (restartBtn) restartBtn.addEventListener("click", restartToInstall);
+  const recheckBtn = rail.querySelector("#update-recheck");
+  if (recheckBtn) recheckBtn.addEventListener("click", checkForUpdates);
+}
+
 // --- Rail --------------------------------------------------------------
 
 function renderRail() {
@@ -109,6 +183,7 @@ function renderRail() {
       <div class="bm-rail-footer">
         <div class="bm-rail-footer-row"><span>Approved</span><span>${state.counts.approved}</span></div>
         <div class="bm-rail-footer-row"><span>Built .txt</span><span>${state.counts.output}</span></div>
+        ${renderUpdateAction()}
       </div>
     </div>
   `);
@@ -116,6 +191,7 @@ function renderRail() {
     node.addEventListener("click", () => switchView(node.getAttribute("data-view")));
   });
   rail.querySelector("#choose-folder-btn").addEventListener("click", onChooseWorkspace);
+  bindUpdateAction(rail);
   return rail;
 }
 
@@ -1033,4 +1109,7 @@ function render() {
   await loadQueue();
   await loadOrg();
   render();
+
+  window.api.onUpdateStatus((status) => setUpdateStatus(status));
+  checkForUpdates(); // not awaited -- a startup check shouldn't hold up opening the queue
 })();

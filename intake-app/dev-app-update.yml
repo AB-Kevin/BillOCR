@@ -1,0 +1,10 @@
+# Only read for electron-updater's own updaterCacheDirName lookup when
+# running unpacked (npm start) with autoUpdater.forceDevUpdateConfig set —
+# see main.js. Actual provider selection always goes through
+# updateProvider.js's setFeedURL() override, packaged or not, so the
+# "provider" here is just a schema-valid fallback and isn't what's really
+# used.
+provider: github
+owner: AB-Kevin
+repo: BillOCR
+releaseType: release

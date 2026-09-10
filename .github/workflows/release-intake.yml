@@ -21,6 +21,12 @@ name: Release Intake
 # its own assets directly via `gh release upload`. Serialized the same way
 # (needs:) for the same reason BillManager's workflow is: two jobs
 # uploading to the same release at once can race.
+#
+# --latest=false: GitHub's "Latest release" badge is repo-wide, not scoped
+# per tag prefix -- without this, every Intake release would steal the badge
+# from Review's (and vice versa) on the Releases page. The apps' own update
+# checks don't rely on that badge either way (see updateProvider.js), so
+# this only affects what the Releases page displays.
 
 on:
   push:
@@ -48,7 +54,7 @@ jobs:
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "Release $TAG already exists, reusing it."
           else
-            gh release create "$TAG" --repo "${{ github.repository }}" --title "BillOCR Intake $TAG" --notes ""
+            gh release create "$TAG" --repo "${{ github.repository }}" --title "BillOCR Intake $TAG" --notes "" --latest=false
           fi
 
   release-windows:

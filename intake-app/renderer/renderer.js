@@ -14,6 +14,7 @@ const state = {
   startError: null,
   busy: false, // Start/Stop in flight
   stopModelStatus: null, // brief feedback text under the "Stop now" button
+  updateStatus: { state: "idle" }, // idle | checking | available | available-manual | downloading | downloaded | not-available | error
 };
 
 const MAX_LOG_LINES = 500;
@@ -62,6 +63,79 @@ function describeCheck(check, okLabel, badLabelPrefix) {
   return { dot: "bad", text: `${badLabelPrefix}: ${check.error || "not reachable"}` };
 }
 
+// ---- Updates ----
+// The main process owns autoUpdater (against updateProvider.js's custom,
+// Intake-only feed -- see its own comment) and only reports status back
+// over "update-status"; nothing here talks to GitHub directly. Same
+// state-machine shape as BillManager's renderer.js.
+//
+// "not-available" is shown only briefly: after the startup auto-check
+// confirms there's nothing new, sitting on "Up to date" forever would be a
+// permanent, slightly odd fixture next to the version number -- it reverts
+// back to the plain "Check for updates" button on its own instead. Every
+// other status (available/downloading/downloaded/error) is left as-is,
+// since those need a person to actually do something about them.
+const NOT_AVAILABLE_DISPLAY_MS = 4000;
+let notAvailableResetTimer = null;
+
+function setUpdateStatus(status) {
+  if (notAvailableResetTimer) {
+    clearTimeout(notAvailableResetTimer);
+    notAvailableResetTimer = null;
+  }
+  state.updateStatus = status;
+  render();
+  if (status.state === "not-available") {
+    notAvailableResetTimer = setTimeout(() => {
+      notAvailableResetTimer = null;
+      state.updateStatus = { state: "idle" };
+      render();
+    }, NOT_AVAILABLE_DISPLAY_MS);
+  }
+}
+
+async function checkForUpdates() {
+  setUpdateStatus({ state: "checking" });
+  await window.api.checkForUpdates();
+}
+async function downloadUpdate() {
+  setUpdateStatus({ ...state.updateStatus, state: "downloading", percent: 0 });
+  await window.api.downloadUpdate();
+}
+function restartToInstall() {
+  window.api.quitAndInstall();
+}
+// Mac builds can't silently install (see main.js's IS_MAC comment), so an
+// available update there just opens that release's GitHub page.
+function openReleasePage() {
+  window.api.openReleasePage(state.updateStatus.tag);
+}
+
+function renderUpdateAction() {
+  const s = state.updateStatus;
+  if (s.state === "checking") return `<span class="bo-update-row">Checking for updates…</span>`;
+  if (s.state === "available") return `<button class="bm-btn bm-btn-primary bm-btn-sm" id="update-download">Download update ${s.version}</button>`;
+  if (s.state === "available-manual") return `<button class="bm-btn bm-btn-primary bm-btn-sm" id="update-manual">Get update ${s.version}</button>`;
+  if (s.state === "downloading") return `<span class="bo-update-row">Downloading… ${s.percent ?? 0}%</span>`;
+  if (s.state === "downloaded") return `<button class="bm-btn bm-btn-secondary bm-btn-sm" id="update-restart">Restart to install</button>`;
+  if (s.state === "not-available") return `<span class="bo-update-row bo-update-clickable" id="update-recheck">Up to date</span>`;
+  if (s.state === "error") return `<span class="bo-update-row bo-update-error bo-update-clickable" id="update-recheck" title="${escapeAttr(s.message || "")}">Update check failed</span>`;
+  return `<button class="bm-btn bm-btn-secondary bm-btn-sm" id="update-check">Check for updates</button>`;
+}
+
+function bindUpdateAction(page) {
+  const checkBtn = page.querySelector("#update-check");
+  if (checkBtn) checkBtn.addEventListener("click", checkForUpdates);
+  const downloadBtn = page.querySelector("#update-download");
+  if (downloadBtn) downloadBtn.addEventListener("click", downloadUpdate);
+  const manualBtn = page.querySelector("#update-manual");
+  if (manualBtn) manualBtn.addEventListener("click", openReleasePage);
+  const restartBtn = page.querySelector("#update-restart");
+  if (restartBtn) restartBtn.addEventListener("click", restartToInstall);
+  const recheckBtn = page.querySelector("#update-recheck");
+  if (recheckBtn) recheckBtn.addEventListener("click", checkForUpdates);
+}
+
 function renderPage() {
   const s = state.settings || {};
   const running = state.status.running;
@@ -73,7 +147,10 @@ function renderPage() {
     <div class="bo-page">
       <div class="bo-title-row">
         <div class="bo-title">BillOCR Intake</div>
-        <div class="bo-version" id="app-version"></div>
+        <div class="bo-version-group">
+          <div class="bo-version" id="app-version"></div>
+          ${renderUpdateAction()}
+        </div>
       </div>
 
       ${state.startError ? `<div class="bo-error-banner">${escapeHtml(state.startError)}</div>` : ""}
@@ -171,6 +248,7 @@ function renderPage() {
   page.querySelector("#start-stop-btn").addEventListener("click", onStartStopClick);
   page.querySelector("#choose-folder-btn").addEventListener("click", onChooseFolderClick);
   page.querySelector("#stop-model-btn").addEventListener("click", onStopModelClick);
+  bindUpdateAction(page);
 
   const bindField = (id, key, transform, onSaved) => {
     const input = page.querySelector(id);
@@ -354,6 +432,9 @@ function appendLogLine(entry) {
   checkPython(state.settings.pythonPath);
   checkOllama(state.settings.ollamaHost);
   refreshPendingCount();
+
+  window.api.onUpdateStatus((status) => setUpdateStatus(status));
+  checkForUpdates(); // not awaited -- a startup check shouldn't hold up the page
 
   window.api.onPipelineLog((entry) => appendLogLine(entry));
   window.api.onPipelineExited((info) => {

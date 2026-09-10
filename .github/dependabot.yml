@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Keep GitHub Actions (actions/checkout, actions/setup-node, gh, ...) current.
+  # Opens a PR automatically whenever a used action cuts a new version --
+  # including major-version bumps.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Keep BillOCR Intake's npm dependencies (electron, electron-builder, ...) current.
+  - package-ecosystem: "npm"
+    directory: "/intake-app"
+    schedule:
+      interval: "weekly"
+
+  # Keep BillOCR Review's npm dependencies current.
+  - package-ecosystem: "npm"
+    directory: "/review-app"
+    schedule:
+      interval: "weekly"
+
+  # Keep the shared OCR/extraction pipeline's Python dependencies current.
+  - package-ecosystem: "pip"
+    directory: "/pipeline"
+    schedule:
+      interval: "weekly"
