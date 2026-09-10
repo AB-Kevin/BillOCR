@@ -1,13 +1,15 @@
 {
   "name": "billocr-review",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "BillOCR Review - review, edit, and approve extracted claims, building 837 files on approval",
   "main": "main.js",
   "author": "",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
+    "build:pipeline-cli": "node scripts/build-pipeline-cli.js",
     "dist": "electron-builder --win --publish never",
+    "predist:mac": "npm run build:pipeline-cli",
     "dist:mac": "electron-builder --mac --publish never",
     "postversion": "node scripts/postversion.js"
   },
@@ -29,15 +31,12 @@
         "from": "../pipeline",
         "to": "pipeline",
         "filter": [
-          "common.py",
-          "claim_schemas.py",
-          "field_validation.py",
-          "validate_fields.py",
-          "x12_837.py",
-          "build_one.py",
-          "dump_schema.py",
           "org_config.example.json"
         ]
+      },
+      {
+        "from": "vendor/pipeline-cli",
+        "to": "pipeline-cli"
       }
     ],
     "win": {
