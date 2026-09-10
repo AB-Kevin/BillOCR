@@ -1,6 +1,6 @@
 {
   "name": "billocr-review",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "BillOCR Review - review, edit, and approve extracted claims, building 837 files on approval",
   "main": "main.js",
   "author": "",

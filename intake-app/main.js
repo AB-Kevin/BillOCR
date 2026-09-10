@@ -22,6 +22,8 @@ const DEFAULT_SETTINGS = {
   model: "qwen3-vl:8b-instruct",
   maxDim: 1600,
   keepAlive: "30m",
+  numCtx: 8192, // see extract_claim_fields.py's --num-ctx (DEFAULT_NUM_CTX) -- too small and a multi-line claim's
+                // JSON reply gets cut off mid-generation, which shows up as a JSON parse error, not a real syntax bug
   verificationPasses: 3, // 1 = off (today's single-read behavior); see extract_claim_fields.py's --verification-passes
   checkPassTemperature: 0.5, // see extract_claim_fields.py's --check-pass-temperature (DEFAULT_CHECK_PASS_TEMPERATURE)
   ollamaHost: "http://localhost:11434",
@@ -91,6 +93,7 @@ function startPipeline() {
   ];
   if (settings.keepAlive) args.push("--keep-alive", String(settings.keepAlive));
   if (settings.maxDim) args.push("--max-dim", String(settings.maxDim));
+  if (settings.numCtx) args.push("--num-ctx", String(settings.numCtx));
   if (settings.verificationPasses) args.push("--verification-passes", String(settings.verificationPasses));
   if (settings.checkPassTemperature != null) args.push("--check-pass-temperature", String(settings.checkPassTemperature));
 

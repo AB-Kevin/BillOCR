@@ -63,6 +63,42 @@ def is_valid_npi(npi: Any) -> bool:
     return total % 10 == 0
 
 
+def tax_id_issue(tax_id: Any, is_ssn: bool) -> Optional[str]:
+    """
+    Structural problems with a federal tax ID beyond "is it 9 digits" --
+    catches shapes the SSA/IRS never actually issue. Unlike an NPI, neither
+    an SSN nor an EIN carries a checksum digit, so this can't catch a
+    misread that happens to land on another plausible-looking number (e.g.
+    a flipped digit that's still a valid shape) -- only shapes that are
+    flatly impossible, which a human still has to actually confirm.
+
+    SSN rules (SSA-published, stable): the area (first 3 digits) is never
+    000, 666, or 900-999 (900-999 is reserved for ITINs, which aren't
+    SSNs); the group (digits 4-5) is never 00; the serial (last 4) is
+    never 0000.
+
+    EIN rule: the IRS has never assigned a prefix (first 2 digits) of 00.
+    Deliberately not checking against the full historical list of
+    IRS-campus prefixes here -- which two-digit prefixes are valid has
+    expanded over time as the IRS opened up new ranges, so a hardcoded
+    list would eventually start flagging perfectly real EINs as invalid.
+    """
+    digits = str(tax_id)
+    if not TAX_ID_RE.match(digits):
+        return f"'{digits}' isn't 9 digits"
+    if is_ssn:
+        area, group, serial = digits[:3], digits[3:5], digits[5:]
+        if area == "000" or area == "666" or area[0] == "9":
+            return f"'{digits}' isn't a valid SSN (area number {area} is never issued)"
+        if group == "00":
+            return f"'{digits}' isn't a valid SSN (group number can't be 00)"
+        if serial == "0000":
+            return f"'{digits}' isn't a valid SSN (serial number can't be 0000)"
+    elif digits[:2] == "00":
+        return f"'{digits}' isn't a valid EIN (no IRS prefix starts with 00)"
+    return None
+
+
 def is_sane_date(value: Any, *, allow_future: bool = True) -> bool:
     if not value or not DATE_RE.match(str(value)):
         return False
@@ -149,18 +185,23 @@ def _validate_cms1500(fields: dict) -> dict:
             _flag(flags, "diagnosis_codes", f"'{code}' doesn't look like a valid ICD-10 code shape")
             break
 
-    for line in fields.get("service_lines") or []:
+    for i, line in enumerate(fields.get("service_lines") or []):
         if not isinstance(line, dict):
             continue
+        # Flagged per line + per sub-field ("service_lines[i].<subfield>"),
+        # not the whole service_lines array -- review-app's renderer.js
+        # highlights the exact input this points at instead of leaving a
+        # reviewer to guess which of several lines (and which field in it)
+        # actually has the problem.
         code = line.get("cpt_hcpcs_code")
         if code and not CPT_HCPCS_RE.match(str(code)):
-            _flag(flags, "service_lines", f"'{code}' doesn't look like a valid CPT/HCPCS code shape")
+            _flag(flags, f"service_lines[{i}].cpt_hcpcs_code", f"'{code}' doesn't look like a valid CPT/HCPCS code shape")
         for date_key in ("date_from", "date_to"):
             if line.get(date_key) and not is_sane_date(line.get(date_key)):
-                _flag(flags, "service_lines", f"service line {date_key} '{line.get(date_key)}' isn't a plausible date")
+                _flag(flags, f"service_lines[{i}].{date_key}", f"'{line.get(date_key)}' isn't a plausible date")
         rendering_npi = line.get("rendering_provider_npi")
         if rendering_npi and not is_valid_npi(rendering_npi):
-            _flag(flags, "service_lines", f"rendering provider NPI '{rendering_npi}' failed checksum")
+            _flag(flags, f"service_lines[{i}].rendering_provider_npi", f"'{rendering_npi}' failed NPI checksum")
 
     if fields.get("patient_dob") and not is_sane_date(fields["patient_dob"], allow_future=False):
         _flag(flags, "patient_dob", "isn't a plausible date")
@@ -170,9 +211,32 @@ def _validate_cms1500(fields: dict) -> dict:
         if z and not ZIP_RE.match(str(z)):
             _flag(flags, zip_key, f"'{z}' doesn't look like a valid ZIP code")
 
+    # Box 25's SSN and EIN checkboxes are reported independently (see
+    # claim_schemas.py's ssn_box_checked/ein_box_checked) rather than
+    # collapsed into a single is-it-an-SSN boolean -- that's the only way
+    # to actually catch the form itself being ambiguous (both marked, or
+    # neither), which a forced single answer could never represent.
+    ssn_checked = bool(fields.get("ssn_box_checked"))
+    ein_checked = bool(fields.get("ein_box_checked"))
+    if ssn_checked and ein_checked:
+        reason = "both the SSN and EIN checkboxes appear checked -- exactly one should be"
+        _flag(flags, "ssn_box_checked", reason)
+        _flag(flags, "ein_box_checked", reason)
+    elif not ssn_checked and not ein_checked:
+        reason = "neither the SSN nor EIN checkbox appears checked -- exactly one should be"
+        _flag(flags, "ssn_box_checked", reason)
+        _flag(flags, "ein_box_checked", reason)
+
     tax_id = fields.get("federal_tax_id")
-    if tax_id and not fields.get("tax_id_is_ssn") and not TAX_ID_RE.match(str(tax_id)):
-        _flag(flags, "federal_tax_id", f"'{tax_id}' isn't 9 digits")
+    if tax_id:
+        # Only meaningful once exactly one checkbox is confirmed checked --
+        # the ambiguous cases are already flagged above regardless, so
+        # treating an ambiguous read as "not SSN" here just picks *a*
+        # answer for this shape check to run, not a claim about which one
+        # is actually correct.
+        issue = tax_id_issue(tax_id, is_ssn=(ssn_checked and not ein_checked))
+        if issue:
+            _flag(flags, "federal_tax_id", issue)
 
     _check_money_sum(flags, "total_charge", fields, "service_lines", "charge_amount", "Total charge")
 
@@ -198,14 +262,16 @@ def _validate_ub04(fields: dict) -> dict:
             _flag(flags, "other_diagnosis_codes", f"'{code}' doesn't look like a valid ICD-10 code shape")
             break
 
-    for line in fields.get("revenue_lines") or []:
+    for i, line in enumerate(fields.get("revenue_lines") or []):
         if not isinstance(line, dict):
             continue
+        # Flagged per line + per sub-field, same reasoning as
+        # _validate_cms1500's service_lines loop above.
         code = line.get("hcpcs_code")
         if code and not CPT_HCPCS_RE.match(str(code)):
-            _flag(flags, "revenue_lines", f"'{code}' doesn't look like a valid CPT/HCPCS code shape")
+            _flag(flags, f"revenue_lines[{i}].hcpcs_code", f"'{code}' doesn't look like a valid CPT/HCPCS code shape")
         if line.get("service_date") and not is_sane_date(line.get("service_date")):
-            _flag(flags, "revenue_lines", f"revenue line service_date '{line.get('service_date')}' isn't a plausible date")
+            _flag(flags, f"revenue_lines[{i}].service_date", f"'{line.get('service_date')}' isn't a plausible date")
 
     if fields.get("patient_dob") and not is_sane_date(fields["patient_dob"], allow_future=False):
         _flag(flags, "patient_dob", "isn't a plausible date")
@@ -221,8 +287,11 @@ def _validate_ub04(fields: dict) -> dict:
             _flag(flags, zip_key, f"'{z}' doesn't look like a valid ZIP code")
 
     tax_id = fields.get("federal_tax_id")
-    if tax_id and not TAX_ID_RE.match(str(tax_id)):
-        _flag(flags, "federal_tax_id", f"'{tax_id}' isn't 9 digits")
+    if tax_id:
+        # UB04_FIELDS has no SSN/EIN split (FL5 is just "federal tax number") -- always EIN-shaped.
+        issue = tax_id_issue(tax_id, is_ssn=False)
+        if issue:
+            _flag(flags, "federal_tax_id", issue)
 
     _check_money_sum(flags, "total_charges", fields, "revenue_lines", "total_charge", "Total charges")
 

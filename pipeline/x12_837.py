@@ -174,7 +174,28 @@ def _billing_provider_loop(hl_id: str, next_hl_id: str, org: dict, fields: dict,
                           fields.get(f"{prefix}billing_provider_zip")))
     tax_id = fields.get("federal_tax_id")
     if tax_id:
-        qualifier = "SY" if fields.get("tax_id_is_ssn") else "EI"
+        if "ssn_box_checked" in fields or "ein_box_checked" in fields:
+            # CMS-1500: Box 25's SSN/EIN checkboxes were read independently
+            # (see claim_schemas.py's CMS1500_BOOLEAN_FIELDS) rather than
+            # collapsed into one boolean, specifically so a claim where the
+            # form itself is ambiguous (both checked, or neither) can be
+            # caught instead of guessed at. field_validation.py already
+            # flags that case for a human to fix in Review, but a flag
+            # there is just a nudge, not a gate -- refuse to build the 837
+            # at all rather than pick a legal-but-possibly-wrong SY/EI
+            # qualifier (see X12 837 REF01 code list 128).
+            ssn_checked = bool(fields.get("ssn_box_checked"))
+            ein_checked = bool(fields.get("ein_box_checked"))
+            if ssn_checked == ein_checked:
+                raise ClaimDataError(
+                    "federal_tax_id: Box 25's SSN and EIN checkboxes must have exactly one checked "
+                    f"(got ssn_box_checked={ssn_checked}, ein_box_checked={ein_checked}) -- "
+                    "fix in Review before approving"
+                )
+            qualifier = "SY" if ssn_checked else "EI"
+        else:
+            # UB-04: FL5 is just "federal tax number", no SSN/EIN split on the form at all.
+            qualifier = "EI"
         segs.append(_seg("REF", qualifier, _digits(tax_id)))
     return segs
 

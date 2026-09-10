@@ -28,7 +28,7 @@ The workspace folder — `incoming_1500/`, `incoming_ub04/`, `pending_review/` (
 
 Both machines still need the same underlying local-LLM setup the old repo documented — this UI doesn't remove that, it just means you never type the commands yourself:
 
-- **OCR machine**: [Ollama](https://ollama.com) running, a vision-capable `-instruct` tagged Qwen model pulled (e.g. `ollama pull qwen3-vl:8b-instruct`), Python 3.9+, and `pip install -r pipeline/requirements.txt` (just the `ollama` package, plus `pip install Pillow` if you want to use the max-image-dimension setting).
+- **OCR machine**: [Ollama](https://ollama.com) running, a vision-capable `-instruct` tagged Qwen model pulled (e.g. `ollama pull qwen3-vl:8b-instruct`), Python 3.9+, and `pip install -r pipeline/requirements.txt` (`ollama`, `Pillow`, and `pypdfium2` -- the latter renders PDF pages to images, see below).
 - **Approval machine**: Python 3.9+ only. `pipeline/x12_837.py` (what actually builds the 837) has zero third-party dependencies — nothing to `pip install` there.
 
 Each app has a "Python path" setting (defaults to `python3` on Mac/Linux, `python` on Windows) in case `python3`/`python` isn't the right command on a given machine.
@@ -41,6 +41,10 @@ Two independent, complementary mechanisms flag fields worth double-checking, sho
 - **Deterministic validation** (`pipeline/field_validation.py`, always on, no extra inference cost): NPI check-digit validation (the real CMS Luhn algorithm, not just a length check), ICD-10/CPT/HCPCS/ZIP/tax-ID shape checks, date sanity, and total-charge-vs-sum-of-line-items arithmetic. Shape checks only — there's no real ICD-10/CPT code-list lookup here, that would need the actual versioned code sets.
 
 Review recomputes the validation flags (not the pass-disagreement ones, which need re-running the model) every time you save an edited claim, via `pipeline/validate_fields.py` — editing a flagged field's value clears its disagreement flag and re-checks it against the validators fresh.
+
+## PDF claims
+
+`incoming_1500/`/`incoming_ub04/` also accept PDFs, not just images — drop a scanned claim in as a `.pdf` and Intake renders each page to a PNG (via `pypdfium2`, no Poppler or other external installer needed) before extraction ever sees it, then moves the original PDF into that folder's `_processed`/`_errors` subfolder same as an image. A multi-page PDF becomes one claim per page. Render resolution is `--pdf-dpi` (default 200) if you ever run `extract_claim_fields.py` from a terminal directly; the apps don't expose it as a setting.
 
 ## Running each app
 

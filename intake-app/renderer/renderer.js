@@ -100,7 +100,7 @@ function renderPage() {
           <span class="bo-path ${s.workspaceFolder ? "" : "empty"}">${s.workspaceFolder ? escapeHtml(s.workspaceFolder) : "No folder chosen yet"}</span>
           <button class="bm-btn bm-btn-secondary bm-btn-sm" id="choose-folder-btn">${ICONS.folder} Choose folder</button>
         </div>
-        <div class="bo-toggle-label">This folder is shared over the network to the BillOCR Review app on the approval machine. It holds <code>incoming_1500/</code>, <code>incoming_ub04/</code> (drop scanned claim images here), and <code>pending_review/</code> (extracted claims waiting for review).</div>
+        <div class="bo-toggle-label">This folder is shared over the network to the BillOCR Review app on the approval machine. It holds <code>incoming_1500/</code>, <code>incoming_ub04/</code> (drop scanned claim images or PDFs here), and <code>pending_review/</code> (extracted claims waiting for review).</div>
       </div>
 
       <div class="bo-card">
@@ -113,6 +113,11 @@ function renderPage() {
           <label class="bm-field">
             <span class="bm-field-label">Max image dimension</span>
             <input class="bm-input" id="field-maxDim" type="number" value="${s.maxDim ?? ""}" placeholder="1600" />
+          </label>
+          <label class="bm-field">
+            <span class="bm-field-label">Model context window (tokens)</span>
+            <input class="bm-input" id="field-numCtx" type="number" min="2048" step="1024" value="${s.numCtx ?? ""}" placeholder="8192" />
+            <span class="bo-toggle-label">Has to fit the image, the prompt, and the full extracted claim together. Too low and a claim with many line items gets cut off mid-read -- showing up as a JSON error in the log for an otherwise-fine image. Raise this if that keeps happening.</span>
           </label>
           <label class="bm-field">
             <span class="bm-field-label">Keep-alive</span>
@@ -179,6 +184,7 @@ function renderPage() {
   };
   bindField("#field-model", "model");
   bindField("#field-maxDim", "maxDim", (v) => (v ? Number(v) : null));
+  bindField("#field-numCtx", "numCtx", (v) => (v ? Number(v) : null));
   bindField("#field-keepAlive", "keepAlive");
   bindField("#field-ollamaHost", "ollamaHost", null, (v) => checkOllama(v));
   bindField("#field-verificationPasses", "verificationPasses", (v) => Math.max(1, Number(v) || 1));
@@ -261,7 +267,19 @@ async function checkOllama(host) {
   render();
 }
 
+// Whether the log pane should auto-follow new output -- true only while the
+// user is actually scrolled to (or near) the bottom. Kept fresh by a
+// "scroll" listener on the pane itself (see render() below), not just
+// recomputed when a line happens to arrive: otherwise, scrolling up to read
+// an old line and then *not* getting a new line before the next periodic
+// render() (see its comment) would leave this at whatever it was last set
+// to, and the full-page rebuild below would snap the reader back to the
+// bottom out from under them even though nothing they did asked for that.
 let logPaneScrollBottom = true;
+
+function isLogPaneAtBottom(logPane) {
+  return logPane.scrollTop + logPane.clientHeight >= logPane.scrollHeight - 4;
+}
 
 function render() {
   const app = document.getElementById("app");
@@ -271,8 +289,12 @@ function render() {
   // whole page every time -- without this, that reset .bo-page's scroll
   // to the top and yanked focus out of whatever field you were typing in,
   // every 5 seconds. Capture both before the rebuild, restore after.
+  // Same problem for the log pane's own scroll position (see
+  // logPaneScrollBottom above) -- captured here alongside the rest.
   const prevPage = document.querySelector(".bo-page");
   const prevScrollTop = prevPage ? prevPage.scrollTop : 0;
+  const prevLogPane = document.getElementById("log-pane");
+  const prevLogScrollTop = prevLogPane ? prevLogPane.scrollTop : 0;
   const active = document.activeElement;
   const focusId = active && active.id && app.contains(active) ? active.id : null;
   const selection =
@@ -298,7 +320,16 @@ function render() {
   }
 
   const logPane = document.getElementById("log-pane");
-  if (logPane && logPaneScrollBottom) logPane.scrollTop = logPane.scrollHeight;
+  if (logPane) {
+    // Only jump to the bottom if the user was actually down there;
+    // otherwise put the freshly-rebuilt pane back exactly where they'd
+    // scrolled it, so reading (or screenshotting) an older line survives
+    // this rebuild instead of being yanked away mid-read.
+    logPane.scrollTop = logPaneScrollBottom ? logPane.scrollHeight : prevLogScrollTop;
+    logPane.addEventListener("scroll", () => {
+      logPaneScrollBottom = isLogPaneAtBottom(logPane);
+    });
+  }
 }
 
 function appendLogLine(entry) {
@@ -306,7 +337,6 @@ function appendLogLine(entry) {
   if (state.logs.length > MAX_LOG_LINES) state.logs.splice(0, state.logs.length - MAX_LOG_LINES);
   const logPane = document.getElementById("log-pane");
   if (!logPane) return;
-  logPaneScrollBottom = logPane.scrollTop + logPane.clientHeight >= logPane.scrollHeight - 4;
   const empty = logPane.querySelector(".bo-log-empty");
   if (empty) empty.remove();
   const lineEl = document.createElement("div");

@@ -90,6 +90,68 @@
   outline: none; resize: vertical; min-height: 60px; line-height: 1.5;
 }
 .rv-field textarea:focus { border-color: var(--accent-text); }
+
+/* ---- Array field editors (diagnosis codes, service/revenue lines, value
+   codes) -- see renderer.js's renderArrayField/wireArrayEditors. .bm-input
+   already gets the missing/flagged red-or-amber treatment above since it's
+   a descendant selector, so every row inside picks that up for free; these
+   add the same treatment to the editor's own border so an *empty* missing
+   array (nothing rendered yet to redden) is still visibly flagged. */
+.rv-array-editor { display: flex; flex-direction: column; gap: var(--space-2); }
+.rv-array-rows { display: flex; flex-direction: column; gap: var(--space-2); }
+.rv-array-row { display: flex; align-items: center; gap: var(--space-2); }
+.rv-array-row .bm-input { flex: 1; }
+.rv-array-remove-btn, .rv-nested-remove-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 26px; height: 26px; border-radius: var(--radius-control); border: 1px solid var(--border-hairline);
+  background: var(--surface-card); color: var(--text-caption); cursor: pointer;
+}
+.rv-array-remove-btn:hover, .rv-nested-remove-btn:hover { background: var(--surface-card-alt); color: #9c4a3d; border-color: #9c4a3d; }
+.rv-array-add-btn { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; }
+.rv-field.missing .rv-array-editor { border: 1px solid #9c4a3d; background: #fdf4f2; border-radius: var(--radius-control); padding: var(--space-3); }
+.rv-field.flagged .rv-array-editor { border: 1px solid #a67c00; background: #fffbea; border-radius: var(--radius-control); padding: var(--space-3); }
+.rv-field.missing.flagged .rv-array-editor { border-color: #9c4a3d; background: #fdf4f2; }
+
+/* One service/revenue/value-code line: a bordered card of labeled inputs,
+   one per sub-field, so a line item reads like a small form instead of a
+   run-on JSON object. */
+.rv-line-item {
+  display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3);
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-control); background: var(--surface-card);
+}
+.rv-line-item-fields { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--space-3); }
+.rv-line-item-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rv-line-item-field-array { grid-column: 1 / -1; }
+.rv-line-item-label { font-size: 10.5px; font-weight: 600; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); }
+.rv-line-item-remove-btn { margin-top: 2px; }
+
+/* A flagged line (validation failure or cross-pass disagreement on one of
+   its own fields, see field_validation.py/collect_disagreement_flags's
+   "service_lines[i].subfield" keys) gets a subtle amber accent on the
+   whole card so it's easy to spot which line has a problem at a glance,
+   plus the exact field within it is highlighted below -- not the whole
+   service_lines/revenue_lines editor the way a flag used to paint it. */
+.rv-line-item.flagged { border-color: #a67c00; background: #fffbea; }
+.rv-line-item-field.flagged .bm-input { border-color: #a67c00; background: #fffbea; }
+.rv-line-item-flag-reason { font-size: 11px; color: #8a6415; line-height: 1.3; }
+
+/* A line item's own array sub-field (currently just service_lines'
+   modifiers) -- small removable chips instead of a whole nested row/add UI,
+   since there are at most 4 and each is a short code. */
+.rv-nested-array { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rv-nested-rows { display: flex; flex-wrap: wrap; gap: 6px; }
+.rv-nested-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 2px 2px 8px;
+  border: 1px solid var(--border-hairline); border-radius: 999px; background: var(--surface-card-alt);
+}
+.rv-nested-input { border: none; background: transparent; color: var(--text-body); font-size: 12.5px; width: 44px; outline: none; }
+.rv-nested-remove-btn, .rv-nested-add-btn { width: 20px; height: 20px; border-radius: 999px; }
+.rv-nested-add-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  border: 1px solid var(--border-hairline); background: var(--surface-card); color: var(--text-caption); cursor: pointer;
+}
+.rv-nested-add-btn:hover { background: var(--surface-card-alt); color: var(--accent-text); border-color: var(--accent-text); }
+
 .rv-review-actions { display: flex; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-hairline); flex-shrink: 0; }
 .rv-review-actions .bm-btn-ghost-spacer { margin-left: auto; }
 

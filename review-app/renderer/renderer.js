@@ -50,6 +50,8 @@ const ICONS = {
   chevronLeft: icon('<polyline points="15 18 9 12 15 6"/>', 14),
   chevronRight: icon('<polyline points="9 18 15 12 9 6"/>', 14),
   folder: icon('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>', 14),
+  plus: icon('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>', 12),
+  remove: icon('<line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/>', 12),
 };
 
 // --- Titlebar --------------------------------------------------------------
@@ -223,6 +225,234 @@ function isArrayField(description) {
   return /JSON array/i.test(description || "");
 }
 
+// Which fields are booleans -- from dump_schema.py's "booleans" list
+// (see claim_schemas.py's *_BOOLEAN_FIELDS), not sniffed from the
+// description text. dump_schema.py rewrites a boolean field's description
+// for Review into something that describes the form rather than JSON
+// true/false (see its BOOLEAN_REVIEW_HINTS), so detecting "is this a
+// boolean field" from that same text would silently break the moment the
+// wording changed -- which is exactly what happened the first time this
+// was a regex on "true if...else false".
+function isBooleanField(formType, key) {
+  return !!state.schema?.[formType]?.booleans?.includes(key);
+}
+
+// Per-field toggle options, in the exact left-to-right order to render
+// them. ssn_box_checked/ein_box_checked are each a literal checkbox
+// observation on the form (see claim_schemas.py -- deliberately two
+// independent fields rather than one is-it-an-SSN boolean, so a claim
+// where the form itself is ambiguous -- both checked, or neither -- can
+// be flagged instead of silently forced into a single answer), so
+// "Checked"/"Unchecked" reads better than generic True/False. Falls back
+// to a generic False/True pair for any boolean field not listed here.
+const CHECKBOX_OPTIONS = [
+  { value: false, label: "Unchecked" },
+  { value: true, label: "Checked" },
+];
+const BOOLEAN_FIELD_OPTIONS = {
+  ssn_box_checked: CHECKBOX_OPTIONS,
+  ein_box_checked: CHECKBOX_OPTIONS,
+};
+const DEFAULT_BOOLEAN_OPTIONS = [
+  { value: false, label: "False" },
+  { value: true, label: "True" },
+];
+
+// --- Array field editors -----------------------------------------------
+// diagnosis_codes/other_diagnosis_codes/condition_codes (arrays of plain
+// strings) and service_lines/revenue_lines/value_codes (arrays of line-item
+// objects) used to all render as one JSON-array-in-a-textarea, which made
+// hand-checking a value against the source image (or just eyeballing
+// whether a line looks right) much harder than every other field on the
+// form. These render an actual add/remove list instead -- one plain input
+// per string, one small fieldset of labeled inputs per line item -- built
+// from claim_schemas.py's array_items metadata (see dump_schema.py) so
+// there's no separate JS copy of which line-item fields exist.
+//
+// Rows are plain, uncontrolled inputs exactly like every other field (see
+// file header) -- only structural changes (add/remove a row) touch the DOM
+// directly (see wireArrayEditors), never a full render(), so editing one
+// field never disturbs unsaved edits anywhere else on the form.
+
+function objectArrayItemSpec(formType, key) {
+  return state.schema?.[formType]?.array_items?.[key] || null;
+}
+
+function stringArrayRowHtml(value) {
+  return `<div class="rv-array-row" data-array-row>
+    <input class="bm-input" data-array-value value="${escapeAttr(value ?? "")}" />
+    <button class="rv-array-remove-btn" data-array-remove type="button" title="Remove">${ICONS.remove}</button>
+  </div>`;
+}
+
+function nestedArrayChipHtml(value) {
+  return `<span class="rv-nested-chip" data-nested-row>
+    <input class="rv-nested-input" data-nested-value value="${escapeAttr(value ?? "")}" />
+    <button class="rv-nested-remove-btn" data-nested-remove type="button" title="Remove">${ICONS.remove}</button>
+  </span>`;
+}
+
+// itemFlags: {subKey: [flagEntry, ...]} for THIS item only (see
+// itemFlagsFor) -- a validation/disagreement problem on one line no longer
+// paints the whole service_lines/revenue_lines editor amber (see
+// field_validation.py and collect_disagreement_flags's "key[index].subKey"
+// flag keys); it's pinpointed to the one input that's actually wrong, with
+// its own reason text right under it. A brand-new line from "+ Add line"
+// has no flags yet, so this is omitted there.
+function objectArrayItemHtml(spec, item, itemFlags) {
+  item = item && typeof item === "object" && !Array.isArray(item) ? item : {};
+  itemFlags = itemFlags || {};
+  const arraySubfields = spec.array_subfields || [];
+  let anyFieldFlagged = false;
+  const fieldsHtml = Object.entries(spec.item_fields)
+    .map(([subKey, label]) => {
+      const flagEntries = itemFlags[subKey];
+      const flagClass = flagEntries ? "flagged" : "";
+      if (flagEntries) anyFieldFlagged = true;
+      const flagHtml = flagEntries
+        ? `<span class="rv-line-item-flag-reason">⚠ ${escapeHtml(flagEntries.map((e) => e.reason).join("; "))}</span>`
+        : "";
+      if (arraySubfields.includes(subKey)) {
+        const values = Array.isArray(item[subKey]) ? item[subKey] : [];
+        return `<div class="rv-line-item-field rv-line-item-field-array ${flagClass}">
+          <span class="rv-line-item-label">${escapeHtml(label)}</span>
+          <div class="rv-nested-array" data-nested-array data-nested-key="${escapeAttr(subKey)}">
+            <div class="rv-nested-rows">${values.map(nestedArrayChipHtml).join("")}</div>
+            <button class="rv-nested-add-btn" data-nested-add type="button" title="Add">${ICONS.plus}</button>
+          </div>
+          ${flagHtml}
+        </div>`;
+      }
+      const v = item[subKey];
+      return `<div class="rv-line-item-field ${flagClass}">
+        <span class="rv-line-item-label">${escapeHtml(label)}</span>
+        <input class="bm-input" data-item-key="${escapeAttr(subKey)}" value="${escapeAttr(v == null ? "" : v)}" />
+        ${flagHtml}
+      </div>`;
+    })
+    .join("");
+  return `<div class="rv-line-item ${anyFieldFlagged ? "flagged" : ""}" data-array-row>
+    <div class="rv-line-item-fields">${fieldsHtml}</div>
+    <button class="rv-array-remove-btn rv-line-item-remove-btn" data-array-remove type="button" title="Remove line">${ICONS.remove}</button>
+  </div>`;
+}
+
+// Pulls out just one line item's own flags from the full flagged_fields
+// dict, keyed "arrayKey[index].subKey" (see field_validation.py), as
+// {subKey: [flagEntry, ...]} for objectArrayItemHtml to render inline.
+function itemFlagsFor(flagged, arrayKey, index) {
+  const prefix = `${arrayKey}[${index}].`;
+  const out = {};
+  for (const [flagKey, entries] of Object.entries(flagged || {})) {
+    if (flagKey.startsWith(prefix)) out[flagKey.slice(prefix.length)] = entries;
+  }
+  return out;
+}
+
+function renderArrayField(formType, key, value, flagged) {
+  const items = Array.isArray(value) ? value : [];
+  const spec = objectArrayItemSpec(formType, key);
+  const kind = spec ? "object" : "string";
+  const rowsHtml = spec
+    ? items.map((item, i) => objectArrayItemHtml(spec, item, itemFlagsFor(flagged, key, i))).join("")
+    : items.map((v) => stringArrayRowHtml(typeof v === "string" ? v : String(v ?? ""))).join("");
+  const addLabel = spec ? "Add line" : "Add";
+  return `<div class="rv-array-editor" id="field-${key}" data-array-field data-array-kind="${kind}">
+    <div class="rv-array-rows">${rowsHtml}</div>
+    <button class="bm-btn bm-btn-secondary bm-btn-sm rv-array-add-btn" data-array-add type="button">${ICONS.plus} ${addLabel}</button>
+  </div>`;
+}
+
+// Wires every array editor's add/remove buttons with direct DOM
+// manipulation (append/remove one row, no render()) -- same reasoning as
+// wireBooleanToggles: an add/remove click shouldn't blow away whatever the
+// reviewer is mid-typing in every other field on the form.
+function wireArrayEditors(root, formType) {
+  root.querySelectorAll("[data-array-field]").forEach((container) => {
+    const key = container.id.replace(/^field-/, "");
+    const kind = container.dataset.arrayKind;
+    const rowsEl = container.querySelector(":scope > .rv-array-rows");
+    const addBtn = container.querySelector(":scope > [data-array-add]");
+
+    const wireRow = (row) => {
+      const removeBtn = row.querySelector(":scope > [data-array-remove]");
+      if (removeBtn) removeBtn.addEventListener("click", () => row.remove());
+      if (kind === "object") wireNestedArrays(row);
+    };
+    rowsEl.querySelectorAll(":scope > [data-array-row]").forEach(wireRow);
+
+    addBtn.addEventListener("click", () => {
+      const rowHtml =
+        kind === "object" ? objectArrayItemHtml(objectArrayItemSpec(formType, key) || { item_fields: {} }, {}, {}) : stringArrayRowHtml("");
+      const row = el(rowHtml);
+      rowsEl.appendChild(row);
+      wireRow(row);
+    });
+  });
+}
+
+function wireNestedArrays(row) {
+  row.querySelectorAll("[data-nested-array]").forEach((nested) => {
+    const rowsEl = nested.querySelector(".rv-nested-rows");
+    const addBtn = nested.querySelector(":scope > [data-nested-add]");
+
+    const wireChip = (chip) => {
+      const removeBtn = chip.querySelector("[data-nested-remove]");
+      if (removeBtn) removeBtn.addEventListener("click", () => chip.remove());
+    };
+    rowsEl.querySelectorAll(":scope > [data-nested-row]").forEach(wireChip);
+
+    addBtn.addEventListener("click", () => {
+      const chip = el(nestedArrayChipHtml(""));
+      rowsEl.appendChild(chip);
+      wireChip(chip);
+    });
+  });
+}
+
+// Reads one array field's current DOM state back into the JSON shape
+// extract_claim_fields.py/build_837.py expect. String-array rows left
+// blank are dropped (an empty row means "no value entered", not a literal
+// empty-string code); object-array rows are always kept even if partially
+// filled -- field_validation.py's per-line checks are already all
+// conditional on a sub-field being present, so a sparse line item is not a
+// new failure mode.
+function readArrayField(formType, key, container) {
+  const kind = container.dataset.arrayKind;
+  const rows = Array.from(container.querySelectorAll(":scope > .rv-array-rows > [data-array-row]"));
+  if (kind !== "object") {
+    return rows
+      .map((row) => row.querySelector("[data-array-value]")?.value ?? "")
+      .map((v) => v.trim())
+      .filter((v) => v !== "");
+  }
+  const spec = objectArrayItemSpec(formType, key) || { item_fields: {}, array_subfields: [], numeric_subfields: [] };
+  const arraySubfields = spec.array_subfields || [];
+  const numericSubfields = spec.numeric_subfields || [];
+  return rows.map((row) => {
+    const item = {};
+    for (const subKey of Object.keys(spec.item_fields)) {
+      if (arraySubfields.includes(subKey)) {
+        const nested = row.querySelector(`[data-nested-array][data-nested-key="${subKey}"]`);
+        const chips = nested ? Array.from(nested.querySelectorAll("[data-nested-value]")) : [];
+        item[subKey] = chips.map((c) => c.value.trim()).filter((v) => v !== "");
+        continue;
+      }
+      const input = row.querySelector(`[data-item-key="${subKey}"]`);
+      const raw = (input?.value ?? "").trim();
+      if (raw === "") {
+        item[subKey] = null;
+      } else if (numericSubfields.includes(subKey)) {
+        const n = Number(raw);
+        item[subKey] = Number.isNaN(n) ? raw : n;
+      } else {
+        item[subKey] = raw;
+      }
+    }
+    return item;
+  });
+}
+
 async function openClaim(index) {
   const summary = state.pendingList[index];
   if (!summary) return;
@@ -254,12 +484,13 @@ function readFormFields() {
     const node = document.getElementById(`field-${key}`);
     if (!node) continue;
     if (isArrayField(fieldSpecs[key])) {
-      const raw = node.value.trim();
-      try {
-        fields[key] = raw ? JSON.parse(raw) : [];
-      } catch (err) {
-        errors.push({ key, message: `${key}: invalid JSON (${err.message})` });
-      }
+      // A real add/remove list, not JSON text to parse -- see
+      // renderArrayField/wireArrayEditors/readArrayField.
+      fields[key] = readArrayField(formType, key, node);
+    } else if (isBooleanField(formType, key)) {
+      // A real boolean, not whatever a text input's .value string would
+      // give -- see wireBooleanToggles/renderReviewView.
+      fields[key] = node.dataset.value === "true";
     } else {
       const raw = node.value;
       fields[key] = raw.trim() === "" ? null : raw;
@@ -381,12 +612,36 @@ function renderReviewView() {
     .map((key) => {
       const desc = fieldSpecs[key];
       const isArr = isArrayField(desc);
+      const isBool = isBooleanField(record.form_type, key);
       const value = fields[key];
       const isMissing = missing.has(key);
       const flagEntries = flagged[key];
-      const inputHtml = isArr
-        ? `<textarea id="field-${key}" rows="3">${escapeHtml(JSON.stringify(value ?? [], null, 2))}</textarea>`
-        : `<input class="bm-input" id="field-${key}" value="${escapeAttr(value == null ? "" : value)}" />`;
+      let inputHtml;
+      if (isArr) {
+        inputHtml = renderArrayField(record.form_type, key, value, flagged);
+      } else if (isBool) {
+        // A real boolean, not a text input -- direct DOM manipulation on
+        // click (see wireBooleanToggles), no render(), same "uncontrolled
+        // until Save" philosophy as every other field (see file header).
+        // Storing "true"/"false" as a string only in data-value (read back
+        // by readFormFields()) keeps the *actual* claim data a real JS
+        // boolean the whole time, unlike the old bare <input> that forced
+        // it through a string round-trip -- see field_validation.py and
+        // x12_837.py, which both rely on ssn_box_checked/ein_box_checked's truthiness.
+        const options = BOOLEAN_FIELD_OPTIONS[key] || DEFAULT_BOOLEAN_OPTIONS;
+        const buttonsHtml = options
+          .map((opt) => {
+            const isActive = value === opt.value;
+            return `<button class="bm-theme-toggle-btn ${isActive ? "active" : ""}" data-bool-set="${opt.value}" type="button">${escapeHtml(opt.label)}</button>`;
+          })
+          .join("");
+        inputHtml = `
+          <div class="bm-theme-toggle" id="field-${key}" data-bool-toggle data-value="${value === true ? "true" : "false"}">
+            ${buttonsHtml}
+          </div>`;
+      } else {
+        inputHtml = `<input class="bm-input" id="field-${key}" value="${escapeAttr(value == null ? "" : value)}" />`;
+      }
       const flagHtml = flagEntries
         ? `<span class="rv-field-flag-reason">⚠ ${escapeHtml(flagEntries.map((e) => e.reason).join("; "))}</span>`
         : "";
@@ -448,11 +703,30 @@ function renderReviewView() {
   main.querySelector("#save-claim").addEventListener("click", doSave);
   main.querySelector("#discard-claim").addEventListener("click", doDiscard);
   main.querySelector("#approve-claim").addEventListener("click", doApprove);
+  wireBooleanToggles(main);
+  wireArrayEditors(main, record.form_type);
 
   wireImagePane(main, imagePath);
   wireResizeHandle(main);
 
   return main;
+}
+
+// Boolean claim fields (see isBooleanField), same "direct DOM, no render()"
+// approach as wireImagePane below -- toggling one shouldn't blow away
+// whatever the reviewer is mid-typing in every other field on the form.
+// readFormFields() reads the result back from data-value.
+function wireBooleanToggles(root) {
+  root.querySelectorAll("[data-bool-toggle]").forEach((toggle) => {
+    toggle.querySelectorAll("[data-bool-set]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        toggle.dataset.value = btn.dataset.boolSet;
+        toggle.querySelectorAll("[data-bool-set]").forEach((b) => {
+          b.classList.toggle("active", b.dataset.boolSet === btn.dataset.boolSet);
+        });
+      });
+    });
+  });
 }
 
 // Zoom + pan + resize for the review image, all direct DOM manipulation
