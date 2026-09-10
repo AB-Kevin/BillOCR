@@ -1,6 +1,6 @@
 {
   "name": "billocr-intake",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "BillOCR Intake - runs the CMS-1500/UB-04 extraction watcher on the dedicated OCR machine",
   "main": "main.js",
   "author": "",
