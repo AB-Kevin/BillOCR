@@ -1,6 +1,6 @@
 {
   "name": "billocr-review",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "BillOCR Review - review, edit, and approve extracted claims, building 837 files on approval",
   "main": "main.js",
   "author": "",
@@ -8,8 +8,10 @@
   "scripts": {
     "start": "electron .",
     "build:pipeline-cli": "node scripts/build-pipeline-cli.js",
+    "build:viewer": "cd viewer && npm run build",
+    "predist": "npm run build:viewer",
     "dist": "electron-builder --win --publish never",
-    "predist:mac": "npm run build:pipeline-cli",
+    "predist:mac": "npm run build:pipeline-cli && npm run build:viewer",
     "dist:mac": "electron-builder --mac --publish never",
     "postversion": "node scripts/postversion.js"
   },
@@ -24,6 +26,7 @@
       "main.js",
       "preload.js",
       "updateProvider.js",
+      "viewerPreload.js",
       "renderer/**/*"
     ],
     "extraResources": [
@@ -37,6 +40,10 @@
       {
         "from": "vendor/pipeline-cli",
         "to": "pipeline-cli"
+      },
+      {
+        "from": "viewer/dist",
+        "to": "viewer"
       }
     ],
     "win": {
