@@ -146,10 +146,12 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
     was asked to emit.
 
     Returns {field_key: [{"type": "disagreement", "pass": i, "value": ...,
-    "reason": ...}, ...]}, empty if verification_passes <= 1 or nothing
-    disagreed. "value" is the raw (already-normalized) alternate reading
-    from that pass -- Review's "use pass N's value" action applies it
-    directly instead of parsing it back out of "reason"'s prose.
+    "primary_value": ..., "reason": ...}, ...]}, empty if
+    verification_passes <= 1 or nothing disagreed. "value"/"primary_value"
+    are the raw (already-normalized) alternate/original readings -- Review
+    reads these directly (both for its "use pass N's value" action, and to
+    render "reason"'s own sentence with just the alternate value linked)
+    instead of parsing them back out of "reason"'s prose.
     """
     flags: dict = {}
     for i in range(2, verification_passes + 1):
@@ -194,10 +196,12 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
                                 "type": "disagreement",
                                 "pass": i,
                                 # Structured, not just embedded in `reason` --
-                                # Review's "use pass N's value" action reads
-                                # this directly rather than parsing Python's
+                                # Review's "use pass N's value" action (and
+                                # the reason text's own linked portion) read
+                                # these directly rather than parsing Python's
                                 # repr() formatting back out of prose.
                                 "value": c_item.get(sub_key),
+                                "primary_value": p_item.get(sub_key),
                                 "reason": f"pass {i} read {c_item.get(sub_key)!r} instead of {p_item.get(sub_key)!r}",
                             })
                             disagreed.append(flag_key)
@@ -207,6 +211,7 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
                     "type": "disagreement",
                     "pass": i,
                     "value": check_val,
+                    "primary_value": primary_val,
                     "reason": f"pass {i} read {check_val!r} instead of {primary_val!r}",
                 })
                 disagreed.append(key)

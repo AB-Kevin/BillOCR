@@ -91,13 +91,13 @@
 .rv-field.missing.flagged textarea { border-color: #9c4a3d; background: #fdf4f2; }
 .rv-field-flag-reason { font-size: 11.5px; color: #8a6415; line-height: 1.4; }
 
-/* A disagreement reason ("pass 2 read 'X' instead of 'Y'") that has a
-   structured alternate value to offer renders as this instead of plain
-   text -- clicking it fills the alternate value in directly (see
-   flagReasonHtml/setFieldValue). Bold + a solid underline is the only cue
-   that some reasons are clickable and others (validation reasons, or a
-   disagreement flag from before this existed) aren't; everything else
-   about it matches the surrounding warning text exactly, on purpose. */
+/* Just the alternate value inside a disagreement reason ("pass 2 read X
+   instead of Y") is this, not the whole sentence -- clicking it fills that
+   value into the field directly (see flagReasonHtml/setFieldValue). Bold +
+   a solid underline is the only cue it's clickable (a validation reason,
+   or a disagreement flag from before this existed, has no linked value at
+   all); everything else about it matches the surrounding warning text
+   exactly, on purpose. */
 .rv-flag-reason-link {
   border: none; background: none; padding: 0; margin: 0; font: inherit; font-weight: 600; color: inherit;
   cursor: pointer; text-decoration: underline; text-underline-offset: 2px;

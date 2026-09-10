@@ -18,6 +18,30 @@ const PIPELINE_DIR = app.isPackaged
   ? path.join(process.resourcesPath, "pipeline")
   : path.join(__dirname, "..", "pipeline");
 
+// Review's own Python usage (dump_schema.py/validate_fields.py/build_one.py)
+// is pure standard library -- unlike Intake, which has real third-party
+// OCR dependencies (ollama, pypdfium2, Pillow) that would make bundling a
+// standalone runtime much heavier. That's what makes it practical to ship
+// a packaged build that needs no Python installed at all: a PyInstaller
+// build of pipeline/review_cli.py (a thin dispatcher over those same three
+// scripts' own main() functions -- see its own comment) is frozen once per
+// platform in release-review.yml and bundled as an extraResource. Only a
+// packaged build has that frozen binary; `npm start` in dev still uses a
+// real system Python (via the "Python path" setting) against the actual
+// .py files, same as always -- see pipelineCommand below.
+const PIPELINE_CLI_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, "pipeline-cli", process.platform === "win32" ? "billocr-review-pipeline.exe" : "billocr-review-pipeline")
+  : null;
+
+// Resolves to the {command, args} to actually spawn for one of
+// review_cli.py's subcommands ("dump-schema" | "validate" | "build-one").
+function pipelineCommand(subcommand, scriptName, extraArgs, pythonPath) {
+  if (PIPELINE_CLI_PATH) {
+    return { command: PIPELINE_CLI_PATH, args: [subcommand, ...extraArgs] };
+  }
+  return { command: pythonPath, args: [path.join(PIPELINE_DIR, scriptName), ...extraArgs] };
+}
+
 const SETTINGS_PATH = path.join(app.getPath("userData"), "settings.json");
 const DEFAULT_SETTINGS = {
   workspaceFolder: null,
@@ -123,7 +147,8 @@ ipcMain.handle("open-release-page", (_e, tag) => {
 
 function loadSchema(pythonPath) {
   try {
-    const out = execFileSync(pythonPath, [path.join(PIPELINE_DIR, "dump_schema.py")], { cwd: PIPELINE_DIR, encoding: "utf-8" });
+    const { command, args } = pipelineCommand("dump-schema", "dump_schema.py", [], pythonPath);
+    const out = execFileSync(command, args, { cwd: PIPELINE_DIR, encoding: "utf-8" });
     cachedSchema = JSON.parse(out);
   } catch (err) {
     cachedSchema = null;
@@ -299,7 +324,8 @@ ipcMain.handle("claims-get", (_e, claimId) => {
 // field_validation.py, rather than reimplementing those checks in JS.
 function recomputeValidationFlags(pythonPath, formType, fields) {
   try {
-    const out = execFileSync(pythonPath, [path.join(PIPELINE_DIR, "validate_fields.py")], {
+    const { command, args } = pipelineCommand("validate", "validate_fields.py", [], pythonPath);
+    const out = execFileSync(command, args, {
       cwd: PIPELINE_DIR,
       input: JSON.stringify({ form_type: formType, fields }),
       encoding: "utf-8",
@@ -446,10 +472,16 @@ ipcMain.handle("claims-approve", (_e, { claimId, fields }) => {
   const outPath = path.join(p.outputDir, `${claimId}.txt`);
   fs.mkdirSync(p.outputDir, { recursive: true });
 
+  const { command, args } = pipelineCommand(
+    "build-one",
+    "build_one.py",
+    ["--claim", jsonPath, "--org", p.org, "--control-state", p.controlState, "--out", outPath],
+    settings.pythonPath
+  );
   return new Promise((resolve) => {
     execFile(
-      settings.pythonPath,
-      [path.join(PIPELINE_DIR, "build_one.py"), "--claim", jsonPath, "--org", p.org, "--control-state", p.controlState, "--out", outPath],
+      command,
+      args,
       { cwd: PIPELINE_DIR },
       (err, stdout, stderr) => {
         if (err) {
@@ -492,6 +524,7 @@ ipcMain.handle("claims-counts", () => {
 
 ipcMain.handle("shell-open-folder", (_e, folderPath) => shell.openPath(folderPath));
 ipcMain.handle("get-app-version", () => app.getVersion());
+ipcMain.handle("uses-bundled-pipeline", () => !!PIPELINE_CLI_PATH);
 
 // --- App lifecycle ---------------------------------------------------------
 

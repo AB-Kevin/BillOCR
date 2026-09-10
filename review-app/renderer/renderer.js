@@ -23,7 +23,8 @@ const state = {
   orgStatus: null,
   orgSeededNotice: false,
   workspaceCorrectedNotice: null,
-  pythonCheck: null, // {ok, version} | {ok:false, error} | null (checking)
+  pythonCheck: null, // {ok, version} | {ok:false, error} | null (checking) -- irrelevant when usesBundledPipeline
+  usesBundledPipeline: false, // true in a packaged build -- see main.js's PIPELINE_CLI_PATH
   updateStatus: { state: "idle" }, // idle | checking | available | available-manual | downloading | downloaded | not-available | error
 };
 
@@ -554,10 +555,11 @@ function readArrayField(formType, key, container) {
 // claims-dismiss-flag and saveClaim's dismissKey handling for the backend
 // half of this):
 //   1. "Approve current value" -- dismisses the flag(s) as-is, no edit.
-//   2. "Use pass N: <value>" -- one per disagreement entry that carries a
-//      structured alternate value (see extract_claim_fields.py's
-//      collect_disagreement_flags) -- fills the field in, same as typing it
-//      by hand.
+//   2. Click the alternate value itself, linked inline within the reason
+//      text (see flagReasonHtml) -- one per disagreement entry that
+//      carries a structured alternate value (see extract_claim_fields.py's
+//      collect_disagreement_flags) -- fills the field in, same as typing
+//      it by hand.
 //   3. Manually enter a value -- no dedicated control; the field is already
 //      a normal editable input right above these actions.
 // Options 2 and 3 clear the flag the same way any manual edit already does
@@ -565,20 +567,33 @@ function readArrayField(formType, key, container) {
 // needs its own round-trip, since it isn't a value edit at all.
 const FLAG_KEY_ITEM_RE = /^([^[]+)\[(\d+)\]\.(.+)$/;
 
-// The ⚠ reason text itself -- no separate "Use pass N: value" button/label;
-// a disagreement entry's own reason ("pass 2 read 'X' instead of 'Y'") IS
-// the link, wherever it has a structured alternate value to apply (see
-// extract_claim_fields.py's collect_disagreement_flags). A validation
+// Formats a flag's raw value (a string/number/bool/array/null) as short,
+// readable text -- shared by the ⚠ reason line below and nowhere else,
+// since it's specifically about presenting one of these values inline.
+function formatFlagValue(value) {
+  if (value == null || value === "") return "(blank)";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "(blank)";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+// The ⚠ reason text -- built from structured fields (pass/value/
+// primary_value), not extract_claim_fields.py's own "reason" prose,
+// specifically so ONLY the alternate value itself is the link, not the
+// whole sentence (the underline then reads as "this is what it'd become"
+// rather than an undifferentiated wall of clickable text). A validation
 // entry (no alternate value to offer) or a legacy disagreement entry from
-// before "value"/"pass" existed on disk just renders as plain text, same
-// as always.
+// before "value"/"pass" existed on disk falls back to the plain reason
+// text unchanged.
 function flagReasonHtml(key, entries) {
   if (!entries || entries.length === 0) return "";
   const parts = entries.map((e) => {
     if (e.type === "disagreement" && e.value !== undefined) {
-      return `<button type="button" class="rv-flag-reason-link" data-flag-use="${escapeAttr(key)}" data-flag-value="${escapeAttr(
-        JSON.stringify(e.value)
-      )}">${escapeHtml(e.reason)}</button>`;
+      const link = `<button type="button" class="rv-flag-reason-link" data-flag-use="${escapeAttr(
+        key
+      )}" data-flag-value="${escapeAttr(JSON.stringify(e.value))}">${escapeHtml(formatFlagValue(e.value))}</button>`;
+      const wasText = e.primary_value !== undefined ? escapeHtml(formatFlagValue(e.primary_value)) : "the current value";
+      return `pass ${e.pass} read ${link} instead of ${wasText}`;
     }
     return escapeHtml(e.reason);
   });
@@ -1006,7 +1021,7 @@ function renderReviewView() {
   wireBooleanToggles(main);
   wireArrayEditors(main, record.form_type);
 
-  wireImagePane(main, imagePath);
+  wireImagePane(main, imagePath, record.claim_id);
   wireResizeHandle(main);
 
   main.querySelectorAll("[data-flag-approve]").forEach((btn) => {
@@ -1054,19 +1069,33 @@ function wireBooleanToggles(root) {
 
 // Zoom + pan + resize for the review image, all direct DOM manipulation
 // (not going through state/render()) so dragging/scrolling stays smooth
-// and doesn't fight a full-tree rebuild mid-gesture. Zoom resets naturally
-// every time this view is rebuilt (new claim, Prev/Next, Save, ...) since
-// it lives only on the DOM node, not in `state`.
-function wireImagePane(root, imagePath) {
+// and doesn't fight a full-tree rebuild mid-gesture.
+//
+// Zoom/pan used to just reset to "Fit" on every rebuild -- fine back when
+// that only happened on an explicit Save/Approve/Prev/Next click, but
+// autosave now rebuilds this view every ~1s while typing, which would
+// otherwise snap a zoomed-in image back to "Fit" mid-edit. persistedZoomState
+// (module-level, not `state` -- it's transient UI, not claim data) survives
+// across those rebuilds for the SAME claim, and is only actually reset when
+// the claim itself changes (a genuinely different image, where keeping the
+// old zoom/pan wouldn't make sense).
+let persistedZoomState = { claimId: null, zoom: 1, scrollLeft: 0, scrollTop: 0 };
+
+function wireImagePane(root, imagePath, claimId) {
   const pane = root.querySelector("#image-pane");
   const img = root.querySelector("#claim-image");
   if (!pane || !img) return;
 
+  if (persistedZoomState.claimId !== claimId) {
+    persistedZoomState = { claimId, zoom: 1, scrollLeft: 0, scrollTop: 0 };
+  }
+
   const zoomLabel = root.querySelector("#zoom-reset");
-  let zoom = 1; // 1 == "fit" (CSS object-fit: contain, no inline size)
+  let zoom = persistedZoomState.zoom; // 1 == "fit" (CSS object-fit: contain, no inline size)
 
   const applyZoom = (next) => {
     zoom = Math.max(1, Math.min(6, next));
+    persistedZoomState.zoom = zoom;
     if (zoom === 1) {
       img.style.maxWidth = "";
       img.style.maxHeight = "";
@@ -1085,6 +1114,40 @@ function wireImagePane(root, imagePath) {
       zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
     }
   };
+
+  // Re-apply whatever zoom/pan this claim already had (a no-op at "Fit",
+  // i.e. every actual claim change) -- deferred until the image both has
+  // real dimensions to zoom against AND is actually attached to the live
+  // document, since applyZoom's non-fit branch measures the <img>'s current
+  // rendered width the first time it runs. Both matter: wireImagePane runs
+  // while `root` is still a detached fragment (renderReviewView() hasn't
+  // been inserted into the page yet -- see render()), so a naive "wait for
+  // the image to load" check can still fire while getBoundingClientRect()
+  // only ever sees an empty, unattached layout box (width 0) -- which then
+  // gets cached forever in img.dataset.baseWidth, permanently breaking
+  // every subsequent zoom-in until the next full render (fresh <img>, same
+  // bug). requestAnimationFrame runs after layout for the live document, so
+  // waiting for img.isConnected there guarantees a real measurement.
+  const restorePersistedZoom = () => {
+    if (persistedZoomState.zoom === 1) return;
+    if (!img.isConnected) {
+      requestAnimationFrame(restorePersistedZoom);
+      return;
+    }
+    applyZoom(persistedZoomState.zoom);
+    pane.scrollLeft = persistedZoomState.scrollLeft;
+    pane.scrollTop = persistedZoomState.scrollTop;
+  };
+  if (img.complete) restorePersistedZoom();
+  else img.addEventListener("load", restorePersistedZoom, { once: true });
+
+  // Keeps persistedZoomState's pan position current as the reviewer drags,
+  // so the NEXT autosave's rebuild (see restorePersistedZoom above) puts it
+  // back exactly where it was, not just at the right zoom level.
+  pane.addEventListener("scroll", () => {
+    persistedZoomState.scrollLeft = pane.scrollLeft;
+    persistedZoomState.scrollTop = pane.scrollTop;
+  });
 
   root.querySelector("#zoom-in").addEventListener("click", () => applyZoom(zoom * 1.25));
   root.querySelector("#zoom-out").addEventListener("click", () => applyZoom(zoom / 1.25));
@@ -1187,7 +1250,10 @@ async function loadOrg() {
   state.org = await window.api.getOrgConfig();
 }
 
+// No-op when usesBundledPipeline -- there's no separate Python path to
+// check in a packaged build (see main.js's PIPELINE_CLI_PATH).
 async function checkPython(pythonPath) {
+  if (state.usesBundledPipeline) return;
   state.pythonCheck = null;
   render();
   state.pythonCheck = await window.api.checkPython(pythonPath);
@@ -1197,7 +1263,10 @@ async function checkPython(pythonPath) {
 
 function schemaWarningBanner() {
   if (state.schema) return "";
-  return `<div class="rv-review-warning">Couldn't load the claim field schema (needed to show/edit claim fields) — check the Python path under Organization Settings.</div>`;
+  const hint = state.usesBundledPipeline
+    ? "Couldn't load the claim field schema (needed to show/edit claim fields) — try restarting the app; if this keeps happening, reinstall it."
+    : "Couldn't load the claim field schema (needed to show/edit claim fields) — check the Python path under Organization Settings.";
+  return `<div class="rv-review-warning">${hint}</div>`;
 }
 
 function renderOrgView() {
@@ -1212,17 +1281,24 @@ function renderOrgView() {
       ${state.orgSeededNotice ? `<div class="rv-review-warning">A new org_config.json was created from the template in this workspace — fill in your real values below.</div>` : ""}
       <div class="rv-settings-form">
         <div class="rv-settings-group">
-          <div class="bm-field">
-            <span class="bm-field-label">Python path</span>
-            <input class="bm-input" id="app-python-path" value="${escapeAttr(state.settings?.pythonPath)}" placeholder="python3" />
-            <span class="rv-field-hint">${
-              state.pythonCheck === null
-                ? "Checking…"
-                : state.pythonCheck.ok
-                  ? `Found: ${escapeHtml(state.pythonCheck.version)}`
-                  : `Not found: ${escapeHtml(state.pythonCheck.error || "")}`
-            }</span>
-          </div>
+          ${
+            state.usesBundledPipeline
+              ? `<div class="bm-field">
+                  <span class="bm-field-label">Python</span>
+                  <span class="rv-field-hint">Bundled with this app — nothing to install separately.</span>
+                </div>`
+              : `<div class="bm-field">
+                  <span class="bm-field-label">Python path</span>
+                  <input class="bm-input" id="app-python-path" value="${escapeAttr(state.settings?.pythonPath)}" placeholder="python3" />
+                  <span class="rv-field-hint">${
+                    state.pythonCheck === null
+                      ? "Checking…"
+                      : state.pythonCheck.ok
+                        ? `Found: ${escapeHtml(state.pythonCheck.version)}`
+                        : `Not found: ${escapeHtml(state.pythonCheck.error || "")}`
+                  }</span>
+                </div>`
+          }
         </div>
         <div class="rv-settings-group">
           ${ORG_FIELD_DEFS.filter((f) => f.key.startsWith("submitter"))
@@ -1253,7 +1329,7 @@ function renderOrgView() {
     </div>
   `);
 
-  main.querySelector("#app-python-path").addEventListener("change", async (e) => {
+  main.querySelector("#app-python-path")?.addEventListener("change", async (e) => {
     state.settings = await window.api.setSettings({ pythonPath: e.target.value });
     checkPython(state.settings.pythonPath);
   });
@@ -1313,10 +1389,18 @@ function render() {
   const app = document.getElementById("app");
 
   // Same full teardown/rebuild as Intake's renderer -- preserve scroll and
-  // focus across it (e.g. Save/Approve re-render while the form pane is
+  // focus across it (e.g. an autosave's re-render while the form pane is
   // scrolled, or a field still has focus) rather than resetting to the top.
+  // Two separate scrollable containers matter here, not just one: .rv-main
+  // is the outer content area (queue/org/about views scroll here), but the
+  // review view's own field list scrolls *inside* it, in .rv-review-form-pane
+  // -- missing that one was the actual cause of "autosave jumps back to the
+  // top" (that pane's scrollTop was never captured, only ever reset to 0 by
+  // the rebuild, regardless of what .rv-main's own scroll was doing).
   const prevScrollEl = document.querySelector(".rv-main");
   const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : 0;
+  const prevFormPaneEl = document.querySelector(".rv-review-form-pane");
+  const prevFormPaneScrollTop = prevFormPaneEl ? prevFormPaneEl.scrollTop : 0;
   // Prefer data-focus-key over a plain id: line-item sub-field inputs
   // (service_lines[i].cpt_hcpcs_code, etc.) have no unique id of their own,
   // only this key -- without it, autosave's frequent re-renders would kick
@@ -1344,6 +1428,8 @@ function render() {
 
   const newScrollEl = document.querySelector(".rv-main");
   if (newScrollEl) newScrollEl.scrollTop = prevScrollTop;
+  const newFormPaneEl = document.querySelector(".rv-review-form-pane");
+  if (newFormPaneEl) newFormPaneEl.scrollTop = prevFormPaneScrollTop;
   if (focusKey) {
     const restored = document.querySelector(`[data-focus-key="${focusKey}"]`) || document.getElementById(focusKey);
     if (restored) {
@@ -1357,8 +1443,11 @@ function render() {
 
 (async function init() {
   state.settings = await window.api.getSettings();
+  state.usesBundledPipeline = await window.api.usesBundledPipeline();
   state.schema = await window.api.getSchema();
-  state.pythonCheck = await window.api.checkPython(state.settings.pythonPath);
+  if (!state.usesBundledPipeline) {
+    state.pythonCheck = await window.api.checkPython(state.settings.pythonPath);
+  }
   await loadQueue();
   await loadOrg();
   render();

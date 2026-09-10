@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld("api", {
 
   openFolder: (folderPath) => ipcRenderer.invoke("shell-open-folder", folderPath),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+  usesBundledPipeline: () => ipcRenderer.invoke("uses-bundled-pipeline"),
 
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
   downloadUpdate: () => ipcRenderer.invoke("download-update"),

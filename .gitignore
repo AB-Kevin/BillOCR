@@ -7,6 +7,12 @@ dist/
 *.log
 npm-debug.log*
 
+# Frozen, platform-specific PyInstaller build of Review's pipeline CLI --
+# built fresh per platform by scripts/build-pipeline-cli.js (locally) or
+# release-review.yml (CI), never committed. See review-app/main.js's
+# PIPELINE_CLI_PATH comment.
+review-app/vendor/
+
 # Python
 __pycache__/
 *.pyc
