@@ -13,6 +13,10 @@ npm-debug.log*
 # PIPELINE_CLI_PATH comment.
 review-app/vendor/
 
+# Copied fresh from renderer/{styles,app}.css before every viewer build --
+# see review-app/viewer/scripts/sync-shared-styles.mjs.
+review-app/viewer/src/shared/
+
 # Python
 __pycache__/
 *.pyc

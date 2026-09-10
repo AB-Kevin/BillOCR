@@ -223,8 +223,17 @@ def _subscriber_loop(hl_id: str, parent_hl_id: str, fields: dict, org: dict, sbr
     if dob:
         segs.append(_seg("DMG", "D8", dob, sex))
 
-    payer_name = fields.get("payer_name") or "UNKNOWN PAYER"
-    segs.append(_seg("NM1", "PR", "2", payer_name, "", "", "", "", "PI", fields.get("payer_id", "UNKNOWN")))
+    # Unlike claim_filing_indicator above, org config wins here rather than
+    # just being a fallback: this pipeline is single-payer by design (see
+    # this module's own SCOPE note), so payer_name/payer_id are one fixed
+    # answer for every claim built with it, not something that could
+    # legitimately vary claim-by-claim -- set them once in org_config.json.
+    # fields.get(...) is only there for a claim extracted before payer_name
+    # moved out of claim_schemas.py's UB04_FIELDS, so an already-in-flight
+    # claim doesn't regress to "UNKNOWN PAYER" if org config isn't set yet.
+    payer_name = org.get("payer_name") or fields.get("payer_name") or "UNKNOWN PAYER"
+    payer_id = org.get("payer_id") or fields.get("payer_id") or "UNKNOWN"
+    segs.append(_seg("NM1", "PR", "2", payer_name, "", "", "", "", "PI", payer_id))
     return segs
 
 

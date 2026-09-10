@@ -25,6 +25,7 @@ const state = {
   workspaceCorrectedNotice: null,
   pythonCheck: null, // {ok, version} | {ok:false, error} | null (checking) -- irrelevant when usesBundledPipeline
   usesBundledPipeline: false, // true in a packaged build -- see main.js's PIPELINE_CLI_PATH
+  exports: [], // [{name, size, mtimeMs}, ...] -- built .837/.txt files, see loadExports
   updateStatus: { state: "idle" }, // idle | checking | available | available-manual | downloading | downloaded | not-available | error
 };
 
@@ -183,7 +184,9 @@ function renderRail() {
       </div>
       <div class="bm-rail-footer">
         <div class="bm-rail-footer-row"><span>Approved</span><span>${state.counts.approved}</span></div>
-        <div class="bm-rail-footer-row"><span>Built .txt</span><span>${state.counts.output}</span></div>
+        <div class="bm-rail-footer-row bm-rail-footer-link ${state.view === "exports" ? "active" : ""}" data-view="exports" title="View built .837 files">
+          <span>Built .txt</span><span>${state.counts.output}</span>
+        </div>
         ${renderUpdateAction()}
       </div>
     </div>
@@ -201,6 +204,7 @@ async function switchView(view) {
   state.view = view;
   if (view === "queue") await loadQueue();
   if (view === "org") await loadOrg();
+  if (view === "exports") await loadExports();
   render();
 }
 
@@ -1244,10 +1248,57 @@ const ORG_FIELD_DEFS = [
   { key: "receiver_id", label: "Receiver ID", hint: "The ID of the system you're sending to (ISA08/GS03)." },
   { key: "receiver_name", label: "Receiver name", hint: "Receiver's name for the NM1*40 segment." },
   { key: "claim_filing_indicator", label: "Claim filing indicator", hint: "X12 code list 1032 (SBR09), e.g. 'ZZ' Mutually Defined, '11' Other Non-Federal Programs, 'CI' Commercial Insurance, 'CH' Champus." },
+  { key: "payer_name", label: "Payer name", hint: "The same payer for every claim this builds (single-payer by design) — used on the NM1*PR segment." },
+  { key: "payer_id", label: "Payer ID", hint: "That payer's ID (NM1*PR, qualifier PI)." },
 ];
 
 async function loadOrg() {
   state.org = await window.api.getOrgConfig();
+}
+
+// --- Exports (built .837/.txt files) ---------------------------------------
+
+async function loadExports() {
+  state.exports = await window.api.listExports();
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderExportsView() {
+  if (!state.settings?.workspaceFolder) return renderNoWorkspace();
+  const rows = state.exports || [];
+  const main = el(`
+    <div class="rv-main">
+      <div class="rv-main-header">
+        <div class="rv-main-title">Built .837 files</div>
+        <span class="rv-main-sub">${rows.length} file${rows.length === 1 ? "" : "s"}</span>
+      </div>
+      ${
+        rows.length === 0
+          ? `<div class="rv-empty"><div class="rv-empty-title">Nothing built yet</div><div>Approved claims land here as .txt files, ready to view or hand off.</div></div>`
+          : `<div class="rv-queue-list">
+              ${rows
+                .map(
+                  (r) => `
+                <div class="rv-claim-row rv-export-row" data-file="${escapeAttr(r.name)}">
+                  <span class="rv-claim-name">${escapeHtml(r.name)}</span>
+                  <span class="rv-claim-meta">${formatBytes(r.size)}</span>
+                  <span class="rv-claim-meta">${new Date(r.mtimeMs).toLocaleString()}</span>
+                </div>`
+                )
+                .join("")}
+            </div>`
+      }
+    </div>
+  `);
+  main.querySelectorAll("[data-file]").forEach((node) => {
+    node.addEventListener("click", () => window.api.openExportViewer(node.getAttribute("data-file")));
+  });
+  return main;
 }
 
 // No-op when usesBundledPipeline -- there's no separate Python path to
@@ -1320,6 +1371,10 @@ function renderOrgView() {
             <span class="rv-field-hint">Leave on Test until you've confirmed real files should start flowing to your internal system — switching to Production is the signal that these are no longer test transactions.</span>
           </div>
           ${orgFieldHtml(ORG_FIELD_DEFS.find((f) => f.key === "claim_filing_indicator"), org)}
+        </div>
+        <div class="rv-settings-group">
+          ${orgFieldHtml(ORG_FIELD_DEFS.find((f) => f.key === "payer_name"), org)}
+          ${orgFieldHtml(ORG_FIELD_DEFS.find((f) => f.key === "payer_id"), org)}
         </div>
         <div class="rv-save-row">
           <button class="bm-btn bm-btn-primary" id="save-org">Save</button>
@@ -1421,6 +1476,7 @@ function render() {
   if (state.view === "review" && state.currentClaim) main = renderReviewView();
   else if (state.view === "org") main = renderOrgView();
   else if (state.view === "about") main = renderAboutView();
+  else if (state.view === "exports") main = renderExportsView();
   else main = renderQueueView();
   body.appendChild(main);
   frag.appendChild(body);

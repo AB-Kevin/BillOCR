@@ -1,0 +1,41 @@
+/* BillOCR Review's claim viewer -- additions on top of the synced
+   shared/{styles,app}.css (see scripts/sync-shared-styles.mjs). This file is
+   the only genuinely new styling the port needed for the field-list phase;
+   everything else (titlebar, .bm-field, .rv-badge/.rv-empty/.rv-main) is
+   reused as-is from Review's own design system rather than redefined. */
+
+body { background: var(--surface-page); margin: 0; display: flex; flex-direction: column; height: 100vh; }
+#app { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.viewer-main { flex: 1; min-height: 0; }
+
+.viewer-loading { color: var(--text-caption); padding: var(--space-6); }
+
+.viewer-claims { display: flex; flex-direction: column; gap: var(--space-5); max-width: 720px; }
+.viewer-claim-divider { border: none; border-top: 1px solid var(--border-hairline); margin: var(--space-4) 0; }
+.viewer-claim-header { display: flex; align-items: center; gap: var(--space-3); }
+.viewer-claim-title { font-size: 19px; font-weight: 600; color: var(--text-heading); }
+
+.viewer-section {
+  background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);
+  padding: var(--space-4); gap: var(--space-3);
+}
+.viewer-section-head { display: flex; align-items: center; justify-content: space-between; }
+.viewer-section-badge {
+  font-family: var(--font-condensed); font-size: 11px; letter-spacing: var(--tracking-label); color: var(--text-caption);
+  background: var(--surface-card-alt); border-radius: 999px; padding: 2px 8px;
+}
+
+.viewer-row { display: flex; align-items: baseline; gap: var(--space-3); font-size: 13px; padding: 3px 0; }
+.viewer-row-label { flex: 0 0 160px; color: var(--text-caption); font-size: 12px; }
+.viewer-row-value { color: var(--text-body); word-break: break-word; }
+.viewer-decoded { color: var(--text-caption); font-style: italic; }
+
+.viewer-empty { color: var(--text-caption); font-size: 13px; }
+
+.viewer-line {
+  border-top: 1px solid var(--border-hairline); padding-top: var(--space-2); margin-top: var(--space-2);
+}
+.viewer-line:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+.viewer-line-head { font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); margin-bottom: 4px; }
+
+.viewer-warning { font-size: 12.5px; color: #8a6415; padding: 2px 0; }

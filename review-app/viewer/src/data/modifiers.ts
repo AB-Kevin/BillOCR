@@ -1,0 +1,111 @@
+/**
+ * Common claim modifiers (CMS-1500 Box 24D / UB-04 / 837 SV1-03..06).
+ *
+ * These are short, factual functional descriptions of what a modifier
+ * *does* to a claim line (e.g. "professional component only"), sourced from
+ * CMS's own public claims-processing guidance (Medicare Claims Processing
+ * Manual, the National Correct Coding Initiative Policy Manual, and the
+ * HCPCS Level II public code set) — not the AMA CPT codebook's copyrighted
+ * modifier descriptor text. Two-digit numeric modifiers (25, 26, 50, 59,
+ * etc.) are administered by the AMA as part of CPT, but the numeric code
+ * itself and a short functional gloss of it are exactly what CMS republishes
+ * verbatim in its own manuals; this table stays deliberately terse for that
+ * reason and never reproduces a full CPT descriptor. Two-character
+ * alphanumeric (HCPCS Level II) modifiers — RT, LT, JW, XE, etc. — are
+ * CMS-owned and fully public.
+ *
+ * To refresh: cross-check against the current Medicare Claims Processing
+ * Manual modifier list and the HCPCS Level II modifier table; add new
+ * entries below keyed by the plain modifier code.
+ */
+export const MODIFIERS: Record<string, string> = {
+  '22': 'Increased procedural services',
+  '23': 'Unusual anesthesia',
+  '24': 'Unrelated E/M service by the same physician during a postoperative period',
+  '25': 'Significant, separately identifiable E/M service, same day as a procedure',
+  '26': 'Professional component',
+  '32': 'Mandated services',
+  '33': 'Preventive service',
+  '47': 'Anesthesia by the surgeon',
+  '50': 'Bilateral procedure',
+  '51': 'Multiple procedures',
+  '52': 'Reduced services',
+  '53': 'Discontinued procedure',
+  '54': 'Surgical care only',
+  '55': 'Postoperative management only',
+  '56': 'Preoperative management only',
+  '57': 'Decision for surgery',
+  '58': 'Staged or related procedure by the same physician during the postoperative period',
+  '59': 'Distinct procedural service',
+  '62': 'Two surgeons',
+  '63': 'Procedure performed on infants weighing less than 4 kg',
+  '66': 'Surgical team',
+  '73': 'Discontinued outpatient procedure, prior to anesthesia',
+  '74': 'Discontinued outpatient procedure, after anesthesia',
+  '76': 'Repeat procedure by the same physician',
+  '77': 'Repeat procedure by another physician',
+  '78': 'Unplanned return to the operating room for a related procedure during the postoperative period',
+  '79': 'Unrelated procedure by the same physician during the postoperative period',
+  '80': 'Assistant surgeon',
+  '81': 'Minimum assistant surgeon',
+  '82': 'Assistant surgeon (qualified resident not available)',
+  '90': 'Reference (outside) laboratory',
+  '91': 'Repeat clinical diagnostic laboratory test',
+  '95': 'Synchronous telemedicine service',
+  '99': 'Multiple modifiers',
+  'AI': 'Principal physician of record',
+  'AS': 'Physician assistant/NP/CNS assisting at surgery',
+  'CC': 'Procedure code change',
+  'CR': 'Catastrophe/disaster related',
+  'E1': 'Upper left eyelid',
+  'E2': 'Lower left eyelid',
+  'E3': 'Upper right eyelid',
+  'E4': 'Lower right eyelid',
+  'F1': 'Left hand, second digit',
+  'F2': 'Left hand, third digit',
+  'F3': 'Left hand, fourth digit',
+  'F4': 'Left hand, fifth digit',
+  'F5': 'Right hand, thumb',
+  'F6': 'Right hand, second digit',
+  'F7': 'Right hand, third digit',
+  'F8': 'Right hand, fourth digit',
+  'F9': 'Right hand, fifth digit',
+  'FA': 'Left hand, thumb',
+  'GA': 'Waiver of liability statement on file (ABN)',
+  'GC': 'Resident physician service performed under teaching physician supervision',
+  'GG': 'Performance/screening mammogram + diagnostic mammogram, same day',
+  'GN': 'Speech-language pathology services under a plan of care',
+  'GO': 'Occupational therapy services under a plan of care',
+  'GP': 'Physical therapy services under a plan of care',
+  'GT': 'Via interactive audio/video telecommunication',
+  'GX': 'Notice of liability issued, voluntary',
+  'GY': 'Item/service statutorily excluded',
+  'GZ': 'Item/service expected to be denied as not reasonable and necessary',
+  'JW': 'Drug/biological amount discarded/not administered',
+  'JZ': 'Zero drug/biological amount discarded',
+  'KX': 'Requirements specified in the medical policy have been met',
+  'LC': 'Left circumflex coronary artery',
+  'LD': 'Left anterior descending coronary artery',
+  'LM': 'Left main coronary artery',
+  'LT': 'Left side',
+  'Q5': 'Reciprocal billing arrangement',
+  'Q6': 'Fee-for-time compensation arrangement (locum tenens)',
+  'RC': 'Right coronary artery',
+  'RI': 'Ramus intermedius coronary artery',
+  'RT': 'Right side',
+  'T1': 'Left foot, second digit',
+  'T2': 'Left foot, third digit',
+  'T3': 'Left foot, fourth digit',
+  'T4': 'Left foot, fifth digit',
+  'T5': 'Right foot, great toe',
+  'T6': 'Right foot, second digit',
+  'T7': 'Right foot, third digit',
+  'T8': 'Right foot, fourth digit',
+  'T9': 'Right foot, fifth digit',
+  'TA': 'Left foot, great toe',
+  'TC': 'Technical component',
+  'XE': 'Separate encounter',
+  'XP': 'Separate practitioner',
+  'XS': 'Separate structure',
+  'XU': 'Unusual non-overlapping service',
+};

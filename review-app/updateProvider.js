@@ -99,18 +99,41 @@ class PrefixedGitHubProvider extends Provider {
       throw new Error(`Cannot find ${channelFile} in release ${tag} (${channelFileUrl}): ${e.message}`);
     }
     const info = yaml.load(rawData);
-    return { tag, releaseName: best.name || tag, ...info };
+    // Kept around for resolveFiles() -- see its own comment for why this
+    // matters: the real, GitHub-confirmed asset list beats reconstructing
+    // a URL from the filename latest.yml itself claims.
+    return { tag, releaseName: best.name || tag, assets: best.assets || [], ...info };
   }
 
+  // Deliberately does NOT reconstruct a download URL from latest.yml's own
+  // filename the way the stock GitHubProvider does (electron-builder's own
+  // "-" space-replacement convention). That convention doesn't actually
+  // match reality here: our release workflow uploads the built .exe/.dmg
+  // via a plain `gh release upload` (a raw GitHub REST call), and GitHub's
+  // asset-upload endpoint renames spaces in the filename to PERIODS, not
+  // dashes -- e.g. the local build's "BillOCR Review Setup 0.2.2.exe"
+  // really ends up stored as "BillOCR.Review.Setup.0.2.2.exe", while
+  // latest.yml still says "BillOCR-Review-Setup-0.2.2.exe". Reconstructing
+  // the dash version 404s. Matching against the release's own `assets`
+  // list (already fetched in getLatestVersion, since it's part of the same
+  // GitHub API response used to find the release) and using THAT asset's
+  // real `browser_download_url` sidesteps needing to know which
+  // substitution GitHub applies at all, and survives it changing again.
   resolveFiles(updateInfo) {
     const files =
       updateInfo.files && updateInfo.files.length
         ? updateInfo.files
         : [{ url: updateInfo.path, sha512: updateInfo.sha512, sha2: updateInfo.sha2 }];
-    return files.map((fileInfo) => ({
-      url: new URL(`${DOWNLOAD_BASE}/${updateInfo.tag}/${String(fileInfo.url).replace(/ /g, "-")}`),
-      info: fileInfo,
-    }));
+    const assets = updateInfo.assets || [];
+    const normalize = (name) => String(name).toLowerCase().replace(/[ ._-]+/g, "-");
+    return files.map((fileInfo) => {
+      const wanted = normalize(fileInfo.url);
+      const match = assets.find((a) => normalize(a.name) === wanted);
+      const url = match
+        ? new URL(match.browser_download_url)
+        : new URL(`${DOWNLOAD_BASE}/${updateInfo.tag}/${String(fileInfo.url).replace(/ /g, "-")}`); // last-resort fallback if the asset list is ever unavailable/stale
+      return { url, info: fileInfo };
+    });
   }
 }
 

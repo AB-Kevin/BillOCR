@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld("api", {
   discardClaim: (claimId) => ipcRenderer.invoke("claims-discard", claimId),
   getClaimCounts: () => ipcRenderer.invoke("claims-counts"),
 
+  listExports: () => ipcRenderer.invoke("exports-list"),
+  openExportViewer: (filename) => ipcRenderer.invoke("open-export-viewer", filename),
+
   openFolder: (folderPath) => ipcRenderer.invoke("shell-open-folder", folderPath),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   usesBundledPipeline: () => ipcRenderer.invoke("uses-bundled-pipeline"),

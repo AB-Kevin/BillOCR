@@ -21,6 +21,10 @@
 .rv-claim-row:hover { background: var(--surface-card-alt); }
 .rv-claim-name { font-size: 13px; color: var(--text-body); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-claim-meta { font-family: var(--font-condensed); font-size: 12px; color: var(--text-caption); }
+
+/* Exports list -- same row/list chrome as the queue, simpler columns
+   (filename, size, modified) instead of the queue's 5. */
+.rv-export-row { grid-template-columns: 1fr 90px 200px; }
 .rv-claim-charge { font-family: var(--font-condensed); font-size: 12px; color: var(--text-body); font-variant-numeric: tabular-nums; }
 .rv-claim-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .rv-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
@@ -198,3 +202,7 @@
 
 /* ---- About ---- */
 .rv-about { max-width: 480px; display: flex; flex-direction: column; gap: var(--space-3); }
+
+/* ---- Rail footer's "Built .txt" link (opens the Exports view) ---- */
+.bm-rail-footer-link { cursor: pointer; margin: 0 calc(var(--space-2) * -1); padding: 2px var(--space-2); border-radius: var(--radius-control); }
+.bm-rail-footer-link:hover, .bm-rail-footer-link.active { background: color-mix(in srgb, var(--on-rail) 12%, transparent); color: var(--on-rail); }

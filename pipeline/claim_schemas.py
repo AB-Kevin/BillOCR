@@ -25,11 +25,22 @@ CMS1500_FIELDS = {
     "patient_city": "Box 5 - city",
     "patient_state": "Box 5 - two-letter state",
     "patient_zip": "Box 5 - ZIP code",
+    "patient_phone": "Box 5 - patient's phone number, if present else null",
     "insured_id_number": "Box 1a - insured's ID number / member ID",
     "insured_last_name": "Box 4 - insured's last name (if different from patient, else same as patient)",
     "insured_first_name": "Box 4 - insured's first name",
+    "insured_dob": "Box 11a - insured's date of birth, exactly as printed -- only present if different from the patient (box 3); else null",
+    "insured_sex": "Box 11a - insured's sex, M or F -- only present if different from the patient; else null",
     "patient_relationship_to_insured": "Box 6 - one of Self, Spouse, Child, Other",
     "other_insured_group_number": "Box 11 - insured's policy/group number",
+    "insured_plan_name": "Box 11c - insurance plan or program name, if present else null",
+    "insured_employer_name": "Box 11b - insured's employer or school name, if present else null",
+    "employment_related": "Box 10a - true if 'Employment (Current or Previous)' is marked Yes, else false",
+    "auto_accident": "Box 10b - true if 'Auto Accident' is marked Yes, else false",
+    "auto_accident_state": "Box 10b - the two-letter state box next to Auto Accident, if present else null",
+    "hospitalization_date_from": "Box 18 - hospitalization dates related to current services, from date, exactly as printed, else null",
+    "hospitalization_date_to": "Box 18 - hospitalization dates related to current services, through date, exactly as printed, else null",
+    "claim_narrative": "Box 19 - additional claim information, if present else null",
     "diagnosis_codes": "Box 21 - list of ICD-10 diagnosis codes in order A, B, C... as a JSON array of strings, e.g. ['M54.5', 'R51']",
     "prior_authorization_number": "Box 23, if present, else null",
     "service_lines": (
@@ -68,14 +79,24 @@ CMS1500_FIELDS = {
         "Box 28 - total charge, printed as dollars and cents in two boxes divided by a line, same as "
         "box 24F (a wider box for whole dollars, a narrower box for cents)."
     ),
+    "accept_assignment": "Box 27 - true if 'YES' is marked, false if 'NO' is marked, else false",
     "billing_provider_name": "Box 33 - billing provider or group name",
     "billing_provider_npi": "Box 33a - billing provider NPI",
     "billing_provider_address": "Box 33 - street address",
     "billing_provider_city": "Box 33 - city",
     "billing_provider_state": "Box 33 - two-letter state",
     "billing_provider_zip": "Box 33 - ZIP code",
+    "billing_provider_phone": "Box 33 - phone number printed near the provider name/address, if present else null",
+    "billing_provider_taxonomy": "Box 33b - taxonomy code, if present else null",
     "referring_provider_name": "Box 17 - referring provider name, else null",
     "referring_provider_npi": "Box 17b - referring provider NPI, else null",
+    "referring_provider_id": "Box 17a - referring provider's other ID (e.g. state license number), if present else null",
+    "service_facility_name": "Box 32 - service facility location name, if present and different from the billing provider, else null",
+    "service_facility_npi": "Box 32a - service facility NPI, if present else null",
+    "service_facility_address": "Box 32 - service facility street address, if present else null",
+    "service_facility_city": "Box 32 - service facility city, if present else null",
+    "service_facility_state": "Box 32 - service facility two-letter state, if present else null",
+    "service_facility_zip": "Box 32 - service facility ZIP code, if present else null",
 }
 
 UB04_FIELDS = {
@@ -122,7 +143,10 @@ UB04_FIELDS = {
         "report every one of these _dollars/_cents pairs as two separate boxes, do not add them together "
         "or combine them into one number yourself"
     ),
-    "payer_name": "FL50 - payer name (line A)",
+    # FL50 (payer name) is deliberately not extracted -- x12_837.py's own
+    # SCOPE note says this pipeline is single-payer by design, so payer
+    # name/ID are org_config.json settings (payer_name/payer_id), the same
+    # for every claim, not something worth asking the model to read per claim.
     "insured_id_number": "FL60 - insured's unique ID",
     "insured_last_name": "FL58 - insured's last name",
     "insured_first_name": "FL58 - insured's first name",
@@ -169,12 +193,13 @@ UB04_REQUIRED = [
 # Python, after extraction, from whatever US date format actually came back
 # (see common.normalize_date). Top-level date fields vs. one-per-line-item
 # fields are tracked separately since the latter live inside a list value.
-CMS1500_DATE_FIELDS = ["patient_dob"]
+CMS1500_DATE_FIELDS = ["patient_dob", "insured_dob", "hospitalization_date_from", "hospitalization_date_to"]
 CMS1500_LINE_DATE_FIELDS = {"service_lines": ["date_from", "date_to"]}
 
 UB04_DATE_FIELDS = ["statement_date_from", "statement_date_to", "patient_dob",
                      "admission_date", "principal_procedure_date"]
-UB04_LINE_DATE_FIELDS = {"revenue_lines": ["service_date"]}
+UB04_LINE_DATE_FIELDS = {"revenue_lines": ["service_date"], "occurrence_codes": ["date"],
+                          "occurrence_span_codes": ["date_from", "date_to"]}
 
 # Which fields hold a two-box (dollars/cents) charge amount, for
 # common.combine_claim_money() -- same "ask the model to transcribe, not

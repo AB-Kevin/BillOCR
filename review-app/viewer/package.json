@@ -1,0 +1,16 @@
+{
+  "name": "billocr-review-viewer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Ported from 837-claim-viewer (github.com/AB-Kevin/837-claim-viewer): decodes a built .837/.txt file and displays it, restyled to match BillOCR Review. Its own small Vite/TS build -- review-app's main app has no build step of its own; this is the one piece that genuinely needs one (canvas rendering, real X12 parsing), kept self-contained rather than dragging Vite/TypeScript into the rest of review-app.",
+  "type": "module",
+  "scripts": {
+    "sync-styles": "node scripts/sync-shared-styles.mjs",
+    "build": "npm run sync-styles && vite build",
+    "dev": "npm run sync-styles && vite"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vite": "^5.4.21"
+  }
+}

@@ -36,6 +36,13 @@ name: Release Review
 # PyInstaller can't cross-compile, so this has to run separately on each
 # platform's own runner, before packaging -- windows-latest/macos-latest
 # both ship a Python 3 already, so no extra setup is needed beyond this.
+#
+# "Build viewer" step: the claim viewer (viewer/, ported from
+# github.com/AB-Kevin/837-claim-viewer) is its own small Vite/TypeScript
+# project -- review-app's main app has no build step of its own. Unlike the
+# pipeline CLI, this one isn't platform-specific (plain JS/CSS bundling), so
+# it doesn't need per-platform handling -- just `npm ci` in viewer/ then
+# `npm run build:viewer` from review-app/ (see review-app/package.json).
 
 on:
   push:
@@ -86,6 +93,13 @@ jobs:
       - name: Build pipeline CLI (no Python needed at runtime -- see comment above)
         run: npm run build:pipeline-cli
 
+      - name: Build viewer
+        run: |
+          cd viewer
+          npm ci
+          cd ..
+          npm run build:viewer
+
       - name: Build (Windows)
         run: npx electron-builder --win --publish never
 
@@ -116,6 +130,13 @@ jobs:
 
       - name: Build pipeline CLI (no Python needed at runtime -- see comment above)
         run: npm run build:pipeline-cli
+
+      - name: Build viewer
+        run: |
+          cd viewer
+          npm ci
+          cd ..
+          npm run build:viewer
 
       - name: Build (macOS)
         run: npx electron-builder --mac --publish never

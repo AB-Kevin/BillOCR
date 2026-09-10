@@ -13,5 +13,9 @@
   "_usage_indicator_note": "T = test data, P = production. Leave as T until your internal system's owner confirms real files should start flowing -- switching this is the signal that these are no longer test transactions.",
 
   "claim_filing_indicator": "ZZ",
-  "_claim_filing_indicator_note": "X12 code list 1032 (SBR09). 'ZZ' (Mutually Defined) is a safe placeholder, not a real answer -- pick the value your internal system actually expects, e.g. '11' Other Non-Federal Programs, 'CI' Commercial Insurance, 'CH' Champus, etc. See README."
+  "_claim_filing_indicator_note": "X12 code list 1032 (SBR09). 'ZZ' (Mutually Defined) is a safe placeholder, not a real answer -- pick the value your internal system actually expects, e.g. '11' Other Non-Federal Programs, 'CI' Commercial Insurance, 'CH' Champus, etc. See README.",
+
+  "payer_name": "Anabaptist Brotherhood",
+  "payer_id": "ANB25",
+  "_payer_note": "This pipeline is single-payer by design (see x12_837.py's own SCOPE note) -- the same payer on every claim it builds, not something extracted per claim."
 }

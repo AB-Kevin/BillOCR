@@ -184,6 +184,93 @@ function paths(workspaceFolder) {
   };
 }
 
+// --- Claim viewer (ported from 837-claim-viewer -- see review-app/viewer/) --
+// A separate small window per opened file (people plausibly want more than
+// one open at once, e.g. comparing two exports), built with its own Vite/TS
+// step (review-app has no build step otherwise) -- see viewer/README-ish
+// comments in main.ts/package.json. dev and packaged both load the SAME
+// built viewer/dist/index.html; there's no live dev-server integration for
+// it yet, so `npm run build:viewer` (see package.json) needs to have been
+// run at least once before `npm start` will show anything real.
+const VIEWER_INDEX = app.isPackaged
+  ? path.join(process.resourcesPath, "viewer", "index.html")
+  : path.join(__dirname, "viewer", "dist", "index.html");
+
+function openClaimViewer(filePath) {
+  const win = new BrowserWindow({
+    width: 900,
+    height: 780,
+    minWidth: 640,
+    minHeight: 480,
+    backgroundColor: "#FFFFFF",
+    autoHideMenuBar: true,
+    frame: false,
+    icon: path.join(__dirname, "build", "icon.png"),
+    webPreferences: {
+      preload: path.join(__dirname, "viewerPreload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  win.loadFile(VIEWER_INDEX, { query: { file: filePath } });
+}
+
+// Scoped to whichever viewer window actually sent the request (BrowserWindow.
+// fromWebContents), not "the" window, since more than one can be open --
+// unlike the main window's window-minimize/etc., which only ever have the
+// one mainWindow to mean.
+ipcMain.handle("viewer-window-minimize", (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
+ipcMain.handle("viewer-window-maximize-toggle", (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+ipcMain.handle("viewer-window-close", (e) => BrowserWindow.fromWebContents(e.sender)?.close());
+
+ipcMain.handle("viewer-read-file", (_e, filePath) => {
+  try {
+    // Defense-in-depth, not a real trust boundary (we're the ones who chose
+    // this URL) -- but there's no reason the viewer should ever be able to
+    // read a file outside the workspace's own output_837/, so keep it that
+    // way even if a future bug ever handed it a bad path.
+    const settings = readSettings();
+    if (!settings.workspaceFolder) return { ok: false, error: "No workspace folder chosen." };
+    const allowedDir = path.resolve(paths(settings.workspaceFolder).outputDir);
+    const resolved = path.resolve(filePath);
+    if (resolved !== allowedDir && !resolved.startsWith(allowedDir + path.sep)) {
+      return { ok: false, error: "This file is outside the workspace's output folder." };
+    }
+    return { ok: true, text: fs.readFileSync(resolved, "utf-8") };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("exports-list", () => {
+  const settings = readSettings();
+  if (!settings.workspaceFolder) return [];
+  const outputDir = paths(settings.workspaceFolder).outputDir;
+  try {
+    return fs
+      .readdirSync(outputDir)
+      .filter((f) => f.endsWith(".txt"))
+      .map((f) => {
+        const stat = fs.statSync(path.join(outputDir, f));
+        return { name: f, size: stat.size, mtimeMs: stat.mtimeMs };
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle("open-export-viewer", (_e, filename) => {
+  const settings = readSettings();
+  if (!settings.workspaceFolder) return;
+  openClaimViewer(path.join(paths(settings.workspaceFolder).outputDir, filename));
+});
+
 function readClaimRecord(jsonPath) {
   return JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
 }
