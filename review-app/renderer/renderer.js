@@ -15,7 +15,7 @@ const state = {
   pendingList: [],
   counts: { pending: 0, approved: 0, output: 0 },
   selectedIndex: -1,
-  currentClaim: null, // {record, imagePath}
+  currentClaim: null, // {record, imagePath, imageUrl} -- imagePath is a native OS path (openFolder), imageUrl a real file:// URL for <img src> (see main.js's claims-get)
   reviewError: null,
   saveStatus: null,
   busy: false,
@@ -918,7 +918,7 @@ async function afterClaimLeavesQueue() {
 }
 
 function renderReviewView() {
-  const { record, imagePath } = state.currentClaim;
+  const { record, imagePath, imageUrl } = state.currentClaim;
   const fieldSpecs = state.schema?.[record.form_type]?.fields || {};
   const missing = new Set(record.missing_required_fields || []);
   const flagged = record.flagged_fields || {};
@@ -989,8 +989,8 @@ function renderReviewView() {
         <div class="rv-review-layout" id="review-layout">
           <div class="rv-review-image-pane" id="image-pane" style="width: ${state.settings?.imagePaneWidth || DEFAULT_IMAGE_PANE_WIDTH}px">
             ${
-              imagePath
-                ? `<img id="claim-image" src="file://${encodeURI(imagePath)}" alt="Source scan" draggable="false" />
+              imageUrl
+                ? `<img id="claim-image" src="${escapeAttr(imageUrl)}" alt="Source scan" draggable="false" />
                    <div class="rv-zoom-controls">
                      <button class="rv-zoom-btn" id="zoom-out" title="Zoom out">&minus;</button>
                      <button class="rv-zoom-btn rv-zoom-label" id="zoom-reset" title="Reset to fit">Fit</button>

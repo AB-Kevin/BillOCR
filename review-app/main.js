@@ -10,6 +10,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { pathToFileURL } = require("url");
 const { execFile, execFileSync } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const { PrefixedGitHubProvider } = require("./updateProvider");
@@ -312,7 +313,22 @@ ipcMain.handle("claims-get", (_e, claimId) => {
   const jsonPath = path.join(p.pendingReview, `${claimId}.json`);
   const record = readClaimRecord(jsonPath);
   const imagePath = record.source_image ? path.join(p.pendingReview, record.source_image) : null;
-  return { record, imagePath: imagePath && fs.existsSync(imagePath) ? imagePath : null };
+  const resolvedImagePath = imagePath && fs.existsSync(imagePath) ? imagePath : null;
+  return {
+    record,
+    imagePath: resolvedImagePath, // native OS path -- only for shell-open-folder, which needs exactly that
+    // A real file:// URL, built with Node's own path-to-URL conversion --
+    // not the renderer hand-rolling "file://" + encodeURI(imagePath)
+    // itself. That worked on mac/Linux (an absolute path already starts
+    // with "/", so the result happens to be well-formed), but broke on
+    // Windows: a Windows path uses backslashes and has no leading slash
+    // before its drive letter ("C:\Users\..."), and encodeURI escapes
+    // backslash to %5C rather than treating it as a path separator --
+    // producing a URL Chromium can't resolve to any file at all, hence the
+    // broken-image icon. pathToFileURL() handles drive letters, UNC paths,
+    // and separators correctly on every platform.
+    imageUrl: resolvedImagePath ? pathToFileURL(resolvedImagePath).href : null,
+  };
 });
 
 // Fresh validation flags after an edit, via pipeline/validate_fields.py --
