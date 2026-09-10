@@ -8,7 +8,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win --publish never",
-    "dist:mac": "electron-builder --mac --publish never"
+    "dist:mac": "electron-builder --mac --publish never",
+    "postversion": "node scripts/postversion.js"
   },
   "devDependencies": {
     "electron": "^43.4.1",
