@@ -150,12 +150,26 @@ UB04_FIELDS = {
     "insured_id_number": "FL60 - insured's unique ID",
     "insured_last_name": "FL58 - insured's last name",
     "insured_first_name": "FL58 - insured's first name",
+    "patient_relationship_to_insured": "FL59 - 2-digit patient/insured relationship code",
+    "insured_group_name": "FL61 - insurance group name, if present else null",
+    "insured_group_number": "FL62 - insurance group number, if present else null",
     "treatment_authorization_code": "FL63, if present else null",
+    "occurrence_codes": (
+        "FL31-34 - JSON array of {code, date} objects for occurrence codes actually present, else empty "
+        "array. code is the 2-digit occurrence code, date is exactly as printed."
+    ),
+    "occurrence_span_codes": (
+        "FL35-36 - JSON array of {code, date_from, date_to} objects for occurrence span codes actually "
+        "present, else empty array. code is the 2-digit occurrence span code, date_from/date_to are "
+        "exactly as printed."
+    ),
     "principal_diagnosis_code": "FL67 - principal diagnosis code (ICD-10-CM), no decimal point removed -- keep as printed",
+    "principal_diagnosis_poa": "FL67 - present-on-admission indicator for the principal diagnosis (Y, N, U, W, or 1), if present else null",
     "other_diagnosis_codes": "FL67 A-Q - JSON array of secondary diagnosis codes actually present, else empty array",
     "admitting_diagnosis_code": "FL69, if present else null",
     "principal_procedure_code": "FL74 - principal procedure code (ICD-10-PCS), if present else null",
     "principal_procedure_date": "FL74 - date of principal procedure, exactly as printed, if present else null",
+    "drg_code": "Diagnosis-Related Group code, if present on the form else null",
     "attending_provider_npi": "FL76 - attending provider NPI",
     "attending_provider_name": "FL76 - attending provider name",
     "billing_provider_name": "FL1 - billing provider/facility name",
@@ -163,6 +177,7 @@ UB04_FIELDS = {
     "billing_provider_city": "FL1 - city",
     "billing_provider_state": "FL1 - two-letter state",
     "billing_provider_zip": "FL1 - ZIP code",
+    "billing_provider_phone": "FL1 - phone number printed near the provider name/address, if present else null",
     "billing_provider_npi": "FL56 - billing provider NPI",
     "total_charges": (
         "FL47 total line - grand total charges, printed as dollars and cents in two boxes divided by a "
@@ -227,7 +242,7 @@ UB04_LINE_MONEY_FIELDS = {
 # BOOLEAN_REVIEW_HINTS there -- so sniffing prose for "true if...else false"
 # the way isArrayField() sniffs for "JSON array" would break the moment
 # that rewording changed, which is exactly what happened once already).
-CMS1500_BOOLEAN_FIELDS = ["ssn_box_checked", "ein_box_checked"]
+CMS1500_BOOLEAN_FIELDS = ["ssn_box_checked", "ein_box_checked", "employment_related", "auto_accident", "accept_assignment"]
 UB04_BOOLEAN_FIELDS: list = []
 
 # Sub-field schemas for array-of-object fields (service_lines, revenue_lines,
@@ -278,6 +293,15 @@ UB04_VALUE_CODE_FIELDS = {
     "code": "Value code (FL39-41)",
     "amount": "Amount",
 }
+UB04_OCCURRENCE_CODE_FIELDS = {
+    "code": "Occurrence code (FL31-34)",
+    "date": "Date",
+}
+UB04_OCCURRENCE_SPAN_CODE_FIELDS = {
+    "code": "Occurrence span code (FL35-36)",
+    "date_from": "From date",
+    "date_to": "Through date",
+}
 UB04_ARRAY_ITEMS = {
     "revenue_lines": {
         "item_fields": UB04_REVENUE_LINE_FIELDS,
@@ -288,6 +312,16 @@ UB04_ARRAY_ITEMS = {
         "item_fields": UB04_VALUE_CODE_FIELDS,
         "array_subfields": [],
         "numeric_subfields": ["amount"],
+    },
+    "occurrence_codes": {
+        "item_fields": UB04_OCCURRENCE_CODE_FIELDS,
+        "array_subfields": [],
+        "numeric_subfields": [],
+    },
+    "occurrence_span_codes": {
+        "item_fields": UB04_OCCURRENCE_SPAN_CODE_FIELDS,
+        "array_subfields": [],
+        "numeric_subfields": [],
     },
 }
 

@@ -179,6 +179,9 @@ def _validate_cms1500(fields: dict) -> dict:
     ref_npi = fields.get("referring_provider_npi")
     if ref_npi and not is_valid_npi(ref_npi):
         _flag(flags, "referring_provider_npi", "failed NPI checksum")
+    facility_npi = fields.get("service_facility_npi")
+    if facility_npi and not is_valid_npi(facility_npi):
+        _flag(flags, "service_facility_npi", "failed NPI checksum")
 
     for code in fields.get("diagnosis_codes") or []:
         if code and not ICD10_RE.match(str(code)):
@@ -206,10 +209,13 @@ def _validate_cms1500(fields: dict) -> dict:
     if fields.get("patient_dob") and not is_sane_date(fields["patient_dob"], allow_future=False):
         _flag(flags, "patient_dob", "isn't a plausible date")
 
-    for zip_key in ("patient_zip", "billing_provider_zip"):
+    for zip_key in ("patient_zip", "billing_provider_zip", "service_facility_zip"):
         z = fields.get(zip_key)
         if z and not ZIP_RE.match(str(z)):
             _flag(flags, zip_key, f"'{z}' doesn't look like a valid ZIP code")
+
+    if fields.get("auto_accident") and not fields.get("auto_accident_state"):
+        _flag(flags, "auto_accident_state", "box 10b is marked Auto Accident, but no state was given")
 
     # Box 25's SSN and EIN checkboxes are reported independently (see
     # claim_schemas.py's ssn_box_checked/ein_box_checked) rather than
@@ -261,6 +267,10 @@ def _validate_ub04(fields: dict) -> dict:
         if code and not ICD10_RE.match(str(code)):
             _flag(flags, "other_diagnosis_codes", f"'{code}' doesn't look like a valid ICD-10 code shape")
             break
+
+    poa = fields.get("principal_diagnosis_poa")
+    if poa and str(poa).upper() not in ("Y", "N", "U", "W", "1"):
+        _flag(flags, "principal_diagnosis_poa", f"'{poa}' isn't a recognized present-on-admission indicator (Y, N, U, W, or 1)")
 
     for i, line in enumerate(fields.get("revenue_lines") or []):
         if not isinstance(line, dict):

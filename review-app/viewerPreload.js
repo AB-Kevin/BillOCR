@@ -9,4 +9,5 @@ contextBridge.exposeInMainWorld("viewerApi", {
   windowMaximizeToggle: () => ipcRenderer.invoke("viewer-window-maximize-toggle"),
   windowClose: () => ipcRenderer.invoke("viewer-window-close"),
   readClaimFile: (filePath) => ipcRenderer.invoke("viewer-read-file", filePath),
+  renderClaimPdf: (claim) => ipcRenderer.invoke("viewer-render-pdf", claim),
 });

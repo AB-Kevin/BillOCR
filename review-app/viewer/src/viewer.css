@@ -10,10 +10,26 @@ body { background: var(--surface-page); margin: 0; display: flex; flex-direction
 
 .viewer-loading { color: var(--text-caption); padding: var(--space-6); }
 
-.viewer-claims { display: flex; flex-direction: column; gap: var(--space-5); max-width: 720px; }
+.viewer-claims { display: flex; flex-direction: column; gap: var(--space-5); }
 .viewer-claim-divider { border: none; border-top: 1px solid var(--border-hairline); margin: var(--space-4) 0; }
-.viewer-claim-header { display: flex; align-items: center; gap: var(--space-3); }
+.viewer-claim-header { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
 .viewer-claim-title { font-size: 19px; font-weight: 600; color: var(--text-heading); }
+
+/* Facsimile (left) + Inspector (right) split, mirroring .rv-review-layout's
+   image-pane/form-pane split on Review's own claim-review screen. Unlike
+   that pane, this one isn't user-resizable -- a fixed proportional split is
+   enough here since there's no source scan image to give real estate back
+   to; a fixed width keeps the (letter-shaped) PDF pane legible at any
+   window size instead of stretching it edge to edge. */
+.viewer-claim-layout { display: flex; gap: var(--space-4); align-items: flex-start; min-height: 0; }
+.viewer-facsimile-pane {
+  flex: 0 0 480px; height: calc(100vh - 160px); min-height: 400px;
+  background: var(--surface-card-alt); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+}
+.viewer-facsimile-pane embed { width: 100%; height: 100%; border: none; }
+.viewer-facsimile-error { color: var(--text-caption); font-size: 13px; text-align: center; padding: var(--space-4); }
+.viewer-inspector-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
 
 .viewer-section {
   background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);

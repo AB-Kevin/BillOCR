@@ -1,8 +1,11 @@
 // Ported from 837-claim-viewer's src/render/text.ts -- deliberately just the
-// two pure, dependency-free helpers x12ClaimSource.ts needs (composeName),
-// not that file's PDF-export text-fitting/font-embedding code (which pulls
-// in pdf-lib/@pdf-lib/fontkit and Node's fs -- irrelevant until/unless a
-// later pass ports PDF export too). See BillOCR's own render/text.ts note.
+// two pure, dependency-free helpers the BROWSER-side code needs
+// (composeName/composeAddressLine, used by x12ClaimSource.ts and this app's
+// own Inspector view), not that file's PDF-export text-fitting/font-embedding
+// code (node:fs + pdf-lib/@pdf-lib/fontkit -- fine in Electron's main
+// process, where the real version now lives, see ./pdfText.ts, but would
+// break Vite's browser bundle here). renderCms1500.ts/renderUb04.ts import
+// from ./pdfText.js instead, not this file.
 
 export function composeName(name: { last: string; first: string; middle: string }): string {
   const parts: string[] = [];

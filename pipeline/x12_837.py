@@ -172,6 +172,13 @@ def _billing_provider_loop(hl_id: str, next_hl_id: str, org: dict, fields: dict,
         segs.append(_seg("N4", fields.get(f"{prefix}billing_provider_city"),
                           fields.get(f"{prefix}billing_provider_state"),
                           fields.get(f"{prefix}billing_provider_zip")))
+    if fields.get(f"{prefix}billing_provider_phone"):
+        segs.append(_seg("PER", "IC", "", "TE", _digits(fields[f"{prefix}billing_provider_phone"])))
+    if fields.get(f"{prefix}billing_provider_taxonomy"):
+        # PRV*BI*PXC*<taxonomy> -- Loop 2000A/2010AA Provider Information.
+        # BI = Billing, PXC = Healthcare Provider Taxonomy Code (the only
+        # qualifier that applies here).
+        segs.append(_seg("PRV", "BI", "PXC", fields[f"{prefix}billing_provider_taxonomy"]))
     tax_id = fields.get("federal_tax_id")
     if tax_id:
         if "ssn_box_checked" in fields or "ein_box_checked" in fields:
@@ -200,6 +207,26 @@ def _billing_provider_loop(hl_id: str, next_hl_id: str, org: dict, fields: dict,
     return segs
 
 
+# X12 code list 1069 (Individual Relationship Code), SBR02. CMS1500's
+# patient_relationship_to_insured is extracted as the English word printed
+# next to box 6's checkboxes (Self/Spouse/Child/Other), not a code, so it
+# needs mapping; UB04's FL59 equivalent is already the 2-digit code as
+# printed on the form, so it passes through mostly as-is. Was previously
+# extracted but never actually used -- every claim built by this module
+# defaulted to "18" (self) regardless of what box 6/FL59 actually said.
+_RELATIONSHIP_TEXT_TO_CODE = {"self": "18", "spouse": "01", "child": "19", "other": "G8"}
+
+
+def _relationship_code(fields: dict, default: str = "18") -> str:
+    raw = fields.get("patient_relationship_to_insured")
+    if not raw:
+        return default
+    raw = str(raw).strip()
+    if raw.isdigit():
+        return raw.zfill(2)
+    return _RELATIONSHIP_TEXT_TO_CODE.get(raw.lower(), default)
+
+
 def _subscriber_loop(hl_id: str, parent_hl_id: str, fields: dict, org: dict, sbr_relationship: str = "18") -> list:
     """Loop 2000B / 2010BA (subscriber) + 2010BB (payer). Assumes patient == subscriber (relationship 18=self)."""
     segs = [_seg("HL", hl_id, parent_hl_id, "22", "0")]
@@ -208,7 +235,14 @@ def _subscriber_loop(hl_id: str, parent_hl_id: str, fields: dict, org: dict, sbr
     # "ZZ" Mutually Defined. Set claim_filing_indicator in org_config.json to match your
     # situation; "ZZ" is a safe-but-vague default, not a guess at your specific payer type.
     claim_filing_code = fields.get("claim_filing_indicator") or org.get("claim_filing_indicator", "ZZ")
-    segs.append(_seg("SBR", "P", sbr_relationship, "", "", "", "", "", "", claim_filing_code))
+    # SBR03/SBR04 = insured's group/policy number and group name -- CMS1500's box 11
+    # (other_insured_group_number) and UB04's new insured_group_number both land in
+    # SBR03 the same way; insured_group_name (UB04 FL61) is CMS1500's counterpart too,
+    # even though CMS1500 doesn't have its own separate group_name field to read one
+    # from (box 11 is number-only there).
+    group_number = fields.get("other_insured_group_number") or fields.get("insured_group_number") or ""
+    group_name = fields.get("insured_group_name") or ""
+    segs.append(_seg("SBR", "P", sbr_relationship, group_number, group_name, "", "", "", "", claim_filing_code))
 
     last = _require(fields, "insured_last_name")
     first = fields.get("insured_first_name", "")
@@ -234,14 +268,31 @@ def _subscriber_loop(hl_id: str, parent_hl_id: str, fields: dict, org: dict, sbr
     payer_name = org.get("payer_name") or fields.get("payer_name") or "UNKNOWN PAYER"
     payer_id = org.get("payer_id") or fields.get("payer_id") or "UNKNOWN"
     segs.append(_seg("NM1", "PR", "2", payer_name, "", "", "", "", "PI", payer_id))
+    if org.get("payer_address"):
+        segs.append(_seg("N3", org["payer_address"]))
+    if org.get("payer_city"):
+        segs.append(_seg("N4", org.get("payer_city"), org.get("payer_state"), org.get("payer_zip")))
     return segs
 
 
-def _diagnosis_hi_segment(codes: list, qualifier_first: str, qualifier_rest: str) -> Optional[str]:
+def _diagnosis_hi_segment(codes: list, qualifier_first: str, qualifier_rest: str, poa_first: Optional[str] = None) -> Optional[str]:
+    """
+    poa_first: present-on-admission indicator for the FIRST code only
+    (institutional principal diagnosis; CMS1500/837P has no POA concept, so
+    callers there just never pass it). Based on the 5010 837I companion
+    guides' documented composite position (C022-09, after 6 unused
+    sub-elements) rather than independently verified against one the way
+    CL1's element order below was -- worth double-checking against a real
+    trading-partner companion guide before relying on this for anything
+    beyond an internal system that tolerates a best-effort read.
+    """
     codes = [c for c in (codes or []) if c]
     if not codes:
         return None
-    composites = [_composite(qualifier_first, codes[0])]
+    first_composite = (
+        _composite(qualifier_first, codes[0], "", "", "", "", "", "", poa_first) if poa_first else _composite(qualifier_first, codes[0])
+    )
+    composites = [first_composite]
     for code in codes[1:12]:
         composites.append(_composite(qualifier_rest, code))
     return _seg("HI", *composites)
@@ -257,13 +308,31 @@ def build_837p(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
 
     segs = _common_header_segments(fields, org, now)
     segs += _billing_provider_loop("1", None, org, fields, prefix="")
-    segs += _subscriber_loop("2", "1", fields, org)
+    segs += _subscriber_loop("2", "1", fields, org, sbr_relationship=_relationship_code(fields))
 
     # Loop 2300 - Claim
     claim_id = fields.get("patient_account_number") or fields.get("claim_id") or "1"
     place_of_service = (fields.get("service_lines") or [{}])[0].get("place_of_service", "11")
-    segs.append(_seg("CLM", claim_id, _money(fields["total_charge"]), "", "",
-                      _composite(place_of_service, "B", "1"), "Y", "A", "Y", "Y"))
+    # CLM07 = Assignment or Plan Participation Code (X12 code list 1300):
+    # "A" Assigned, "C" Not Assigned. accept_assignment absent (a claim
+    # extracted before this field existed) keeps the old hardcoded "A"
+    # rather than silently becoming "C".
+    assignment_code = "A" if fields.get("accept_assignment", True) else "C"
+    clm_args = [claim_id, _money(fields["total_charge"]), "", "",
+                _composite(place_of_service, "B", "1"), "Y", assignment_code, "Y", "Y"]
+    # CLM11 = Related Causes Information (composite C024, up to 3 cause
+    # codes) -- box 10a/10b. Only appended when at least one applies; a
+    # trailing CLM10 (Patient Signature Source, not captured/asked of the
+    # model) is left blank rather than guessed at.
+    cause_codes = []
+    if fields.get("auto_accident"):
+        cause_codes.append("AA")
+    if fields.get("employment_related"):
+        cause_codes.append("EM")
+    if cause_codes:
+        clm_args.append("")
+        clm_args.append(_composite(*cause_codes))
+    segs.append(_seg("CLM", *clm_args))
     if fields.get("prior_authorization_number"):
         segs.append(_seg("REF", "G1", fields["prior_authorization_number"]))
 
@@ -274,6 +343,18 @@ def build_837p(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
     if fields.get("referring_provider_npi"):
         segs.append(_seg("NM1", "DN", "1", fields.get("referring_provider_name", ""), "", "", "", "",
                           "XX", fields["referring_provider_npi"]))
+
+    # Loop 2310C - Service Facility Location (box 32), only when given and
+    # presumably different from the billing provider (box 33) -- if a
+    # claim never fills this in, there's nothing to add.
+    if fields.get("service_facility_name") or fields.get("service_facility_npi"):
+        segs.append(_seg("NM1", "77", "2", fields.get("service_facility_name", ""), "", "", "", "",
+                          "XX", fields.get("service_facility_npi", "")))
+        if fields.get("service_facility_address"):
+            segs.append(_seg("N3", fields["service_facility_address"]))
+        if fields.get("service_facility_city"):
+            segs.append(_seg("N4", fields.get("service_facility_city"),
+                              fields.get("service_facility_state"), fields.get("service_facility_zip")))
 
     # Loop 2400 - Service lines
     for i, line in enumerate(fields["service_lines"], start=1):
@@ -303,7 +384,7 @@ def build_837i(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
 
     segs = _common_header_segments(fields, org, now)
     segs += _billing_provider_loop("1", None, org, fields, prefix="")
-    segs += _subscriber_loop("2", "1", fields, org)
+    segs += _subscriber_loop("2", "1", fields, org, sbr_relationship=_relationship_code(fields))
 
     # Loop 2300 - Claim. CLM05 mirrors the UB-04 Type of Bill: CLM05-1 is its first two
     # digits (facility type + bill classification), CLM05-2 is "A" (Facility Code
@@ -328,11 +409,14 @@ def build_837i(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
         segs.append(_seg("DTP", "435", "D8", admission_date))
 
     all_dx = [fields["principal_diagnosis_code"]] + list(fields.get("other_diagnosis_codes") or [])
-    hi = _diagnosis_hi_segment(all_dx, "ABK", "ABF")
+    hi = _diagnosis_hi_segment(all_dx, "ABK", "ABF", poa_first=fields.get("principal_diagnosis_poa"))
     if hi:
         segs.append(hi)
     if fields.get("admitting_diagnosis_code"):
         segs.append(_seg("HI", _composite("ABJ", fields["admitting_diagnosis_code"])))
+    if fields.get("drg_code"):
+        # DR = Diagnosis Related Group.
+        segs.append(_seg("HI", _composite("DR", fields["drg_code"])))
     if fields.get("principal_procedure_code"):
         # ABR = ICD-10-PCS Principal Procedure Information (confirmed against an official
         # state Medicaid 837I companion guide; mirrors the ICD-10 "A"-prefix diagnosis
@@ -350,6 +434,17 @@ def build_837i(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
         # here, left blank), -05 monetary amount (confirmed against the X12 element
         # dictionary) -- so two blank placeholders before the amount, not one.
         segs.append(_seg("HI", _composite("BE", value.get("code"), "", "", _money(value.get("amount")))))
+    for occ in (fields.get("occurrence_codes") or []):
+        # BH = Occurrence. -03 is a date qualifier (D8), -04 the date itself.
+        occ_date = _date8(occ.get("date"))
+        if occ_date:
+            segs.append(_seg("HI", _composite("BH", occ.get("code"), "D8", occ_date)))
+    for span in (fields.get("occurrence_span_codes") or []):
+        # BI = Occurrence Span -- a date RANGE (RD8), not a single date, unlike BH above.
+        span_from = _date8(span.get("date_from"))
+        span_to = _date8(span.get("date_to")) or span_from
+        if span_from:
+            segs.append(_seg("HI", _composite("BI", span.get("code"), "RD8", f"{span_from}-{span_to}")))
 
     if fields.get("attending_provider_npi"):
         segs.append(_seg("NM1", "71", "1", fields.get("attending_provider_name", ""), "", "", "", "",

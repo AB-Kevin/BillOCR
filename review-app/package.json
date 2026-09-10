@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "build:pipeline-cli": "node scripts/build-pipeline-cli.js",
-    "build:viewer": "cd viewer && npm run build",
+    "build:viewer": "cd viewer && npm run build && npm run build:main-render",
     "predist": "npm run build:viewer",
     "dist": "electron-builder --win --publish never",
     "predist:mac": "npm run build:pipeline-cli && npm run build:viewer",
@@ -44,6 +44,10 @@
       {
         "from": "viewer/dist",
         "to": "viewer"
+      },
+      {
+        "from": "viewer/dist-main",
+        "to": "viewer-render"
       }
     ],
     "win": {

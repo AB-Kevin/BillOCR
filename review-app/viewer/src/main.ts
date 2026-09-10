@@ -1,7 +1,13 @@
-// BillOCR Review's claim viewer — Phase 1 (structured field list only; the
-// pixel-accurate CMS-1500/UB-04 paper-form preview, ported from
-// 837-claim-viewer's src/render/cms1500 & ub04, is a follow-up pass -- see
-// that repo's docs and this app's own README note on the port).
+// BillOCR Review's claim viewer. Two panes per claim, side by side (same
+// split-pane idea as Review's own claim-review screen: source image on the
+// left, extracted fields on the right -- see .rv-review-layout in
+// renderer.js): a facsimile pane showing the pixel-accurate CMS-1500/UB-04
+// PDF (ported from 837-claim-viewer's src/render/cms1500 & ub04, rendered in
+// the main process -- see render/mainRender.ts and main.js's
+// `viewer-render-pdf` handler -- and displayed here via Electron's own
+// bundled Chromium PDF viewer, a plain <embed type="application/pdf">,
+// rather than porting that app's pdfjs-dist canvas engine), and an Inspector
+// pane with the structured field list below.
 //
 // Reuses 837-claim-viewer's own decode/model/X12-parsing layers verbatim
 // (src/model, src/data, src/sources here) -- only this file and viewer.css
@@ -30,6 +36,7 @@ declare global {
       windowMaximizeToggle: () => void;
       windowClose: () => void;
       readClaimFile: (path: string) => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
+      renderClaimPdf: (claim: Claim) => Promise<{ ok: true; bytes: Uint8Array } | { ok: false; error: string }>;
     };
   }
 }
@@ -271,14 +278,40 @@ function renderClaim(claim: Claim): string {
     : "";
 
   return `
-    <div class="viewer-claim-header">
-      <div class="viewer-claim-title">Claim ${escapeHtml(claim.claimId || "(no ID)")}</div>
-      <span class="rv-badge ${claim.formType === "unsupported" ? "rv-badge-missing" : "rv-badge-ok"}">${escapeHtml(claim.formType.toUpperCase())}</span>
-    </div>
     ${warnings}
     ${patient}${insured}${payer}${otherInsurance}${billing}${rendering}${referring}${facility}
     ${diagnoses}${lines}${totals}${flags}${hospitalization}${institutional}${narrative}
   `;
+}
+
+function renderClaimHeader(claim: Claim): string {
+  return `
+    <div class="viewer-claim-header">
+      <div class="viewer-claim-title">Claim ${escapeHtml(claim.claimId || "(no ID)")}</div>
+      <span class="rv-badge ${claim.formType === "unsupported" ? "rv-badge-missing" : "rv-badge-ok"}">${escapeHtml(claim.formType.toUpperCase())}</span>
+    </div>
+  `;
+}
+
+// Loads one claim's facsimile PDF (asynchronously, after the surrounding
+// layout is already in the DOM -- rendering a PDF can take a moment, and the
+// Inspector fields shouldn't wait on it) and swaps the pane's placeholder for
+// a native <embed>. A render failure still leaves the Inspector fully usable
+// alongside it -- same "never dead-end the review" reasoning as the ported
+// renderer's own unsupported-form placeholder page (see mainRender.ts).
+async function loadFacsimile(claim: Claim, pane: HTMLElement): Promise<void> {
+  const result = await window.viewerApi.renderClaimPdf(claim);
+  if (!result.ok) {
+    pane.innerHTML = `<div class="viewer-facsimile-error">Couldn't render the paper form.<br>${escapeHtml(result.error)}</div>`;
+    return;
+  }
+  const blob = new Blob([new Uint8Array(result.bytes)], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  pane.innerHTML = "";
+  const embed = document.createElement("embed");
+  embed.setAttribute("type", "application/pdf");
+  embed.setAttribute("src", url);
+  pane.appendChild(embed);
 }
 
 function renderTitlebar(title: string): HTMLElement {
@@ -321,7 +354,25 @@ async function init() {
       return;
     }
     const claims = source.parse(result.text);
-    main.innerHTML = `<div class="viewer-claims">${claims.map(renderClaim).join('<hr class="viewer-claim-divider" />')}</div>`;
+    main.innerHTML = `<div class="viewer-claims">${claims
+      .map(
+        (claim, i) => `
+          <div class="viewer-claim-block">
+            ${renderClaimHeader(claim)}
+            <div class="viewer-claim-layout">
+              <div class="viewer-facsimile-pane" id="viewer-facsimile-${i}">
+                <div class="viewer-loading">Loading preview…</div>
+              </div>
+              <div class="viewer-inspector-pane">${renderClaim(claim)}</div>
+            </div>
+          </div>`
+      )
+      .join('<hr class="viewer-claim-divider" />')}</div>`;
+
+    claims.forEach((claim, i) => {
+      const pane = document.getElementById(`viewer-facsimile-${i}`);
+      if (pane) void loadFacsimile(claim, pane);
+    });
   } catch (err) {
     main.innerHTML = `<div class="rv-empty"><div class="rv-empty-title">Couldn't decode this claim</div><div>${escapeHtml((err as Error).message)}</div></div>`;
   }

@@ -1250,6 +1250,10 @@ const ORG_FIELD_DEFS = [
   { key: "claim_filing_indicator", label: "Claim filing indicator", hint: "X12 code list 1032 (SBR09), e.g. 'ZZ' Mutually Defined, '11' Other Non-Federal Programs, 'CI' Commercial Insurance, 'CH' Champus." },
   { key: "payer_name", label: "Payer name", hint: "The same payer for every claim this builds (single-payer by design) — used on the NM1*PR segment." },
   { key: "payer_id", label: "Payer ID", hint: "That payer's ID (NM1*PR, qualifier PI)." },
+  { key: "payer_address", label: "Payer address", hint: "Optional — leave blank if your internal system doesn't need the payer's own mailing address." },
+  { key: "payer_city", label: "Payer city", hint: "Optional." },
+  { key: "payer_state", label: "Payer state", hint: "Optional — two-letter state." },
+  { key: "payer_zip", label: "Payer ZIP", hint: "Optional." },
 ];
 
 async function loadOrg() {
@@ -1375,6 +1379,10 @@ function renderOrgView() {
         <div class="rv-settings-group">
           ${orgFieldHtml(ORG_FIELD_DEFS.find((f) => f.key === "payer_name"), org)}
           ${orgFieldHtml(ORG_FIELD_DEFS.find((f) => f.key === "payer_id"), org)}
+          ${orgFieldHtml(ORG_FIELD_DEFS.find((f) => f.key === "payer_address"), org)}
+          ${orgFieldHtml(ORG_FIELD_DEFS.find((f) => f.key === "payer_city"), org)}
+          ${orgFieldHtml(ORG_FIELD_DEFS.find((f) => f.key === "payer_state"), org)}
+          ${orgFieldHtml(ORG_FIELD_DEFS.find((f) => f.key === "payer_zip"), org)}
         </div>
         <div class="rv-save-row">
           <button class="bm-btn bm-btn-primary" id="save-org">Save</button>

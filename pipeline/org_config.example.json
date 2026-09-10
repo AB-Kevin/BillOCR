@@ -17,5 +17,9 @@
 
   "payer_name": "Anabaptist Brotherhood",
   "payer_id": "ANB25",
-  "_payer_note": "This pipeline is single-payer by design (see x12_837.py's own SCOPE note) -- the same payer on every claim it builds, not something extracted per claim."
+  "payer_address": "",
+  "payer_city": "",
+  "payer_state": "",
+  "payer_zip": "",
+  "_payer_note": "This pipeline is single-payer by design (see x12_837.py's own SCOPE note) -- the same payer on every claim it builds, not something extracted per claim. Address is optional -- most 837 consumers don't need the payer's own mailing address, only its name/ID -- leave blank if yours doesn't ask for it."
 }

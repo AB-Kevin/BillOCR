@@ -7,9 +7,13 @@
   "scripts": {
     "sync-styles": "node scripts/sync-shared-styles.mjs",
     "build": "npm run sync-styles && vite build",
+    "build:main-render": "node scripts/build-main-render.mjs",
     "dev": "npm run sync-styles && vite"
   },
   "devDependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "esbuild": "^0.21.5",
+    "pdf-lib": "^1.17.1",
     "typescript": "^5.7.0",
     "vite": "^5.4.21"
   }

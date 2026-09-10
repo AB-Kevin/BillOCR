@@ -210,10 +210,50 @@ function openClaimViewer(filePath) {
       preload: path.join(__dirname, "viewerPreload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      // The facsimile pane displays a claim's rendered PDF via a plain
+      // <embed type="application/pdf">, relying on Electron's own bundled
+      // Chromium PDF viewer rather than porting 837-claim-viewer's
+      // pdfjs-dist canvas/zoom/tab engine -- verified for real (a disposable
+      // capturePage() screenshot test, see billocr-claim-viewer-port memory)
+      // before committing to this instead of that much larger port.
+      plugins: true,
     },
   });
   win.loadFile(VIEWER_INDEX, { query: { file: filePath } });
 }
+
+// The paper-form renderer (renderCms1500/renderUb04, ported from
+// 837-claim-viewer's src/render/) needs node:fs (to read its bundled DejaVu
+// font files) and real pdf-lib/@pdf-lib/fontkit, so it can't run in the
+// sandboxed viewer renderer the way the field-list Inspector's decode logic
+// does -- it's bundled separately (viewer/scripts/build-main-render.mjs,
+// NOT part of viewer/dist -- that's Vite's browser bundle for the viewer
+// window's own UI) as a standalone ESM module and loaded here, in the main
+// process, via dynamic import(). Loaded once and cached; a claim is handed
+// across IPC as plain data (the already-decoded Claim object, not raw X12 --
+// decoding stays in the viewer renderer, see x12ClaimSource.ts) and PDF bytes
+// come back the same way structured-clone handles any other typed array.
+const RENDER_BUNDLE_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, "viewer-render", "render.mjs")
+  : path.join(__dirname, "viewer", "dist-main", "render.mjs");
+
+let renderModulePromise = null;
+function loadRenderModule() {
+  if (!renderModulePromise) {
+    renderModulePromise = import(pathToFileURL(RENDER_BUNDLE_PATH).href);
+  }
+  return renderModulePromise;
+}
+
+ipcMain.handle("viewer-render-pdf", async (_e, claim) => {
+  try {
+    const { renderClaimPdf } = await loadRenderModule();
+    const bytes = await renderClaimPdf(claim);
+    return { ok: true, bytes };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
 
 // Scoped to whichever viewer window actually sent the request (BrowserWindow.
 // fromWebContents), not "the" window, since more than one can be open --

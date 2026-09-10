@@ -4,6 +4,7 @@
 # Node / Electron
 node_modules/
 dist/
+dist-main/
 *.log
 npm-debug.log*
 
