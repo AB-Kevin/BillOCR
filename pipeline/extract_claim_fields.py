@@ -454,11 +454,13 @@ def process_one(path: Path, form_type: str, out_dir: Path, processed_dir: Path, 
         else:
             logger.info("%s -> %s : extracted, all required fields present and nothing flagged", path.name, claim_id)
         emit_progress(event="file_done", file=path.name, claim_id=claim_id, ok=True,
-                      missing=bool(missing), flagged=bool(flagged))
+                      missing=bool(missing), flagged=bool(flagged), form_type=form_type,
+                      model=model, verification_passes=verification_passes)
 
     except Exception as exc:  # noqa: BLE001 -- keep the watcher alive no matter what
         logger.exception("Failed on %s: %s", path.name, exc)
-        emit_progress(event="file_done", file=path.name, claim_id=None, ok=False, error=str(exc))
+        emit_progress(event="file_done", file=path.name, claim_id=None, ok=False, error=str(exc),
+                      form_type=form_type, model=model, verification_passes=verification_passes)
         try:
             shutil.move(str(path), str(errors_dir / path.name))
         except Exception:

@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld("api", {
   stopModelNow: (host, model) => ipcRenderer.invoke("ollama-stop-model", { host, model }),
   pendingCount: () => ipcRenderer.invoke("pending-count"),
 
+  getHistory: () => ipcRenderer.invoke("history-get"),
+  clearHistory: () => ipcRenderer.invoke("history-clear"),
+
   openFolder: (folderPath) => ipcRenderer.invoke("shell-open-folder", folderPath),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
 
@@ -44,6 +47,7 @@ contextBridge.exposeInMainWorld("api", {
   onPipelineLog: subscribe("pipeline:log"),
   onPipelineProgress: subscribe("pipeline:progress"),
   onPipelineExited: subscribe("pipeline:exited"),
+  onHistoryAdd: subscribe("pipeline:history-add"),
   onWindowState: subscribe("window-state"),
   onUpdateStatus: subscribe("update-status"),
 });

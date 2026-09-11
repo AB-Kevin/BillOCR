@@ -28,9 +28,9 @@
 .rv-claim-charge { font-family: var(--font-condensed); font-size: 12px; color: var(--text-body); font-variant-numeric: tabular-nums; }
 .rv-claim-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .rv-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
-.rv-badge-missing { background: #f6e9e6; color: #9c4a3d; }
+.rv-badge-missing { background: var(--danger-surface); color: var(--danger-text); }
 .rv-badge-ok { background: var(--green-100); color: var(--accent-text); }
-.rv-badge-flagged { background: #fff3cd; color: #8a6415; }
+.rv-badge-flagged { background: var(--warning-surface); color: var(--warning-text); }
 
 /* ---- Review layout (image + editable field form) ---- */
 .rv-review { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--space-4); }
@@ -78,10 +78,10 @@
 .rv-zoom-label { width: auto; padding: 0 8px; font-size: 11px; font-family: var(--font-condensed); letter-spacing: var(--tracking-label); }
 
 .rv-review-form-pane { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding-left: var(--space-4); padding-right: 4px; }
-.rv-review-warning { background: #f6e9e6; color: #9c4a3d; border-radius: var(--radius-control); padding: var(--space-3) var(--space-4); font-size: 12.5px; line-height: 1.5; }
+.rv-review-warning { background: var(--danger-surface); color: var(--danger-text); border-radius: var(--radius-control); padding: var(--space-3) var(--space-4); font-size: 12.5px; line-height: 1.5; }
 .rv-field-hint { font-size: 11.5px; color: var(--text-caption); line-height: 1.4; }
 .rv-field.missing .bm-input,
-.rv-field.missing textarea { border-color: #9c4a3d; background: #fdf4f2; }
+.rv-field.missing textarea { border-color: var(--danger-text); background: var(--danger-field-surface); }
 /* Amber for "flagged" (disagreed across verification passes / failed a
    validation check) -- a lower-severity signal than "missing", and the
    two are independent: a field can be both (missing takes the red
@@ -90,10 +90,10 @@
    red treatment explicitly to make the precedence intentional rather than
    accidental on source order). */
 .rv-field.flagged .bm-input,
-.rv-field.flagged textarea { border-color: #a67c00; background: #fffbea; }
+.rv-field.flagged textarea { border-color: var(--warning-border); background: var(--warning-field-surface); }
 .rv-field.missing.flagged .bm-input,
-.rv-field.missing.flagged textarea { border-color: #9c4a3d; background: #fdf4f2; }
-.rv-field-flag-reason { font-size: 11.5px; color: #8a6415; line-height: 1.4; }
+.rv-field.missing.flagged textarea { border-color: var(--danger-text); background: var(--danger-field-surface); }
+.rv-field-flag-reason { font-size: 11.5px; color: var(--warning-text); line-height: 1.4; }
 
 /* Just the alternate value inside a disagreement reason ("pass 2 read X
    instead of Y") is this, not the whole sentence -- clicking it fills that
@@ -106,7 +106,7 @@
   border: none; background: none; padding: 0; margin: 0; font: inherit; font-weight: 600; color: inherit;
   cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
 }
-.rv-flag-reason-link:hover { color: #6b4d10; }
+.rv-flag-reason-link:hover { color: var(--warning-text-hover); }
 
 /* ---- Flag resolution actions (just "Approve current value" now -- see
    .rv-flag-reason-link above for "use pass N's value", which is the
@@ -114,9 +114,9 @@
 .rv-flag-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: 2px; }
 .rv-flag-action {
   border: none; background: none; padding: 0; font: inherit; cursor: pointer;
-  text-decoration: underline; text-underline-offset: 2px; color: #8a6415;
+  text-decoration: underline; text-underline-offset: 2px; color: var(--warning-text);
 }
-.rv-flag-action:hover { color: #6b4d10; }
+.rv-flag-action:hover { color: var(--warning-text-hover); }
 .rv-flag-approve { color: var(--accent-text); }
 .rv-flag-approve:hover { color: var(--green-700); }
 .rv-field textarea {
@@ -141,11 +141,11 @@
   width: 26px; height: 26px; border-radius: var(--radius-control); border: 1px solid var(--border-hairline);
   background: var(--surface-card); color: var(--text-caption); cursor: pointer;
 }
-.rv-array-remove-btn:hover, .rv-nested-remove-btn:hover { background: var(--surface-card-alt); color: #9c4a3d; border-color: #9c4a3d; }
+.rv-array-remove-btn:hover, .rv-nested-remove-btn:hover { background: var(--surface-card-alt); color: var(--danger-text); border-color: var(--danger-text); }
 .rv-array-add-btn { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; }
-.rv-field.missing .rv-array-editor { border: 1px solid #9c4a3d; background: #fdf4f2; border-radius: var(--radius-control); padding: var(--space-3); }
-.rv-field.flagged .rv-array-editor { border: 1px solid #a67c00; background: #fffbea; border-radius: var(--radius-control); padding: var(--space-3); }
-.rv-field.missing.flagged .rv-array-editor { border-color: #9c4a3d; background: #fdf4f2; }
+.rv-field.missing .rv-array-editor { border: 1px solid var(--danger-text); background: var(--danger-field-surface); border-radius: var(--radius-control); padding: var(--space-3); }
+.rv-field.flagged .rv-array-editor { border: 1px solid var(--warning-border); background: var(--warning-field-surface); border-radius: var(--radius-control); padding: var(--space-3); }
+.rv-field.missing.flagged .rv-array-editor { border-color: var(--danger-text); background: var(--danger-field-surface); }
 
 /* One service/revenue/value-code line: a bordered card of labeled inputs,
    one per sub-field, so a line item reads like a small form instead of a
@@ -166,9 +166,9 @@
    whole card so it's easy to spot which line has a problem at a glance,
    plus the exact field within it is highlighted below -- not the whole
    service_lines/revenue_lines editor the way a flag used to paint it. */
-.rv-line-item.flagged { border-color: #a67c00; background: #fffbea; }
-.rv-line-item-field.flagged .bm-input { border-color: #a67c00; background: #fffbea; }
-.rv-line-item-flag-reason { font-size: 11px; color: #8a6415; line-height: 1.3; }
+.rv-line-item.flagged { border-color: var(--warning-border); background: var(--warning-field-surface); }
+.rv-line-item-field.flagged .bm-input { border-color: var(--warning-border); background: var(--warning-field-surface); }
+.rv-line-item-flag-reason { font-size: 11px; color: var(--warning-text); line-height: 1.3; }
 
 /* Approved view (see renderApprovedDetailView) -- the same field/line-item
    rhythm as the editable review form above, but plain text instead of

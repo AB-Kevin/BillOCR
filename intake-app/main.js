@@ -18,6 +18,12 @@ const PIPELINE_DIR = app.isPackaged
   : path.join(__dirname, "..", "pipeline");
 
 const SETTINGS_PATH = path.join(app.getPath("userData"), "settings.json");
+const HISTORY_PATH = path.join(app.getPath("userData"), "history.json");
+// Capped so a machine left running for months doesn't grow this file
+// unboundedly -- oldest entries are dropped first. Purely a "what has this
+// app been doing" record for a person to skim, not an audit log, so losing
+// very old entries is fine.
+const MAX_HISTORY_ENTRIES = 1000;
 const DEFAULT_SETTINGS = {
   workspaceFolder: null,
   pythonPath: process.platform === "win32" ? "python" : "python3",
@@ -48,6 +54,35 @@ function writeSettings(patch) {
   return next;
 }
 
+// --- Processing history ----------------------------------------------------
+// One entry per file the pipeline has finished (success or failure), for the
+// renderer's History modal -- see appendHistoryEntry (below) for what each
+// entry holds and forwardLine's "file_done" handling (further down) for
+// where entries actually get built.
+function readHistory() {
+  try {
+    return JSON.parse(fs.readFileSync(HISTORY_PATH, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+function appendHistoryEntry(entry) {
+  const next = readHistory();
+  next.push(entry);
+  if (next.length > MAX_HISTORY_ENTRIES) next.splice(0, next.length - MAX_HISTORY_ENTRIES);
+  fs.mkdirSync(path.dirname(HISTORY_PATH), { recursive: true });
+  fs.writeFileSync(HISTORY_PATH, JSON.stringify(next), "utf-8");
+}
+
+function clearHistory() {
+  try {
+    fs.rmSync(HISTORY_PATH, { force: true });
+  } catch {
+    // nothing to remove
+  }
+}
+
 let mainWindow = null;
 let tray = null;
 let quitting = false; // set true only when the tray/menu actually asks to quit
@@ -60,6 +95,12 @@ let procStartedAt = null;
 // current state from pipelineStatus() instead of showing nothing until the
 // next event fires.
 let lastProgress = null;
+// filename -> Date.now() of that file's "pass_start"/stage:"primary" event,
+// so the matching "file_done" can compute how long the file took -- see
+// forwardLine's PROGRESS handling. Cleared per-file as each file_done event
+// consumes its entry, and wholesale on every startPipeline() so a stale
+// timestamp from a previous run can never leak into this one.
+let pendingFileStarts = {};
 
 const WORKSPACE_SUBDIRS = ["incoming_1500", "incoming_ub04", "pending_review"];
 
@@ -184,6 +225,7 @@ function startPipeline() {
   proc = spawn(settings.pythonPath, args, { cwd: PIPELINE_DIR });
   procStartedAt = new Date().toISOString();
   lastProgress = null;
+  pendingFileStarts = {};
 
   // extract_claim_fields.py prints one "PROGRESS <json>" line (via
   // common.emit_progress) right before it starts a model call and again
@@ -200,6 +242,40 @@ function startPipeline() {
       if (streamName === "stdout" && line.startsWith(PROGRESS_PREFIX)) {
         try {
           const event = JSON.parse(line.slice(PROGRESS_PREFIX.length));
+          // Track when each file's primary read started so both the live
+          // Status card widget and the matching file_done event below can
+          // show how long it's taking/took -- pass_start fires exactly once
+          // per file with stage:"primary" (see extract_claim_fields.py's
+          // process_one), before any verification-pass resamples, and every
+          // subsequent pass_start for the same file (a verify-stage resample)
+          // carries the same original startedAt forward rather than
+          // resetting it, so the on-screen timer counts the whole file, not
+          // just its current pass.
+          if (event.event === "pass_start") {
+            if (event.stage === "primary") pendingFileStarts[event.file] = Date.now();
+            event.startedAt = pendingFileStarts[event.file] || null;
+          }
+          if (event.event === "file_done") {
+            const startedAt = pendingFileStarts[event.file];
+            delete pendingFileStarts[event.file];
+            const elapsedMs = startedAt != null ? Date.now() - startedAt : null;
+            event.elapsedMs = elapsedMs; // lets the renderer's brief done-flash show a final duration too
+            const historyEntry = {
+              file: event.file,
+              formType: event.form_type || null,
+              claimId: event.claim_id || null,
+              ok: !!event.ok,
+              missing: !!event.missing,
+              flagged: !!event.flagged,
+              error: event.error || null,
+              model: event.model || null,
+              verificationPasses: event.verification_passes || null,
+              elapsedMs,
+              finishedAt: new Date().toISOString(),
+            };
+            appendHistoryEntry(historyEntry);
+            sendToWindow("pipeline:history-add", historyEntry);
+          }
           lastProgress = event.event === "file_done" ? null : event;
           sendToWindow("pipeline:progress", event);
           continue;
@@ -219,6 +295,7 @@ function startPipeline() {
     proc = null;
     procStartedAt = null;
     lastProgress = null;
+    pendingFileStarts = {};
     sendToWindow("pipeline:exited", { code: null, error: err.message });
   });
 
@@ -226,6 +303,7 @@ function startPipeline() {
     proc = null;
     procStartedAt = null;
     lastProgress = null;
+    pendingFileStarts = {};
     sendToWindow("pipeline:exited", { code, signal });
   });
 
@@ -462,6 +540,12 @@ ipcMain.handle("pending-count", () => {
   } catch {
     return 0;
   }
+});
+
+ipcMain.handle("history-get", () => readHistory());
+ipcMain.handle("history-clear", () => {
+  clearHistory();
+  return [];
 });
 
 ipcMain.handle("shell-open-folder", (_e, folderPath) => shell.openPath(folderPath));

@@ -20,9 +20,23 @@ const state = {
   // renderProgressWidget/patchProgressWidget) -- driven by extract_claim_fields.py's
   // PROGRESS lines (see common.emit_progress), forwarded here as "pipeline:progress"
   // IPC pushes (see main.js's forwardLine).
-  progress: null, // {event:"pass_start", file, pass, of, stage} | null (idle/watching)
-  doneFlash: null, // {file, ok, claim_id, missing, flagged, error} | null -- brief "✓/✗" shown after a file_done event, see scheduleDoneFlashClear()
+  progress: null, // {event:"pass_start", file, pass, of, stage, startedAt} | null (idle/watching) -- startedAt (ms epoch, from main.js) feeds the live elapsed timer in renderProgressWidget
+  doneFlash: null, // {file, ok, claim_id, missing, flagged, error, elapsedMs} | null -- brief "✓/✗" shown after a file_done event, see scheduleDoneFlashClear()
+  // Every file the pipeline has finished (success or failure), newest first
+  // -- loaded from disk at init (main.js's history.json, via history-get)
+  // and grown live as "pipeline:history-add" pushes arrive (see
+  // onHistoryAddEvent()). Each entry: {file, formType, claimId, ok, missing,
+  // flagged, error, model, verificationPasses, elapsedMs, finishedAt}.
+  history: [],
+  historyModalOpen: false,
+  historyClearBusy: false,
 };
+
+// Rendering more than this many rows in the History modal at once buys
+// nothing (nobody reads a 1000-row list) and just makes the modal sluggish
+// to open -- the full array (capped separately by main.js's
+// MAX_HISTORY_ENTRIES) still backs the "N processed" summary line above it.
+const MAX_HISTORY_ROWS_SHOWN = 200;
 
 const MAX_LOG_LINES = 500;
 
@@ -42,6 +56,7 @@ const ICONS = {
   folder: icon('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>', 14),
   check: icon('<polyline points="20 6 9 17 4 12"/>', 14),
   x: icon('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', 14),
+  history: icon('<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/>', 14),
 };
 
 // True on macOS/Windows, computed once (not per-render): navigator.platform
@@ -224,6 +239,7 @@ function renderPage() {
       <div class="bo-title-row">
         <div class="bo-title">BillOCR Intake</div>
         <div class="bo-version-group">
+          <button class="bm-btn bm-btn-secondary bm-btn-sm" id="history-btn">${ICONS.history} History</button>
           <div class="bo-version" id="app-version"></div>
           ${renderUpdateAction()}
         </div>
@@ -334,6 +350,7 @@ function renderPage() {
   page.querySelector("#start-stop-btn").addEventListener("click", onStartStopClick);
   page.querySelector("#choose-folder-btn").addEventListener("click", onChooseFolderClick);
   page.querySelector("#stop-model-btn").addEventListener("click", onStopModelClick);
+  page.querySelector("#history-btn").addEventListener("click", openHistoryModal);
   page.querySelectorAll("#theme-toggle [data-theme-choice]").forEach((btn) =>
     btn.addEventListener("click", () => setTheme(btn.dataset.themeChoice))
   );
@@ -394,21 +411,33 @@ function renderProgressWidget() {
   if (!state.status.running) return "";
   if (state.doneFlash) {
     const f = state.doneFlash;
+    // f.elapsedMs is the file's final duration (see main.js's file_done
+    // handling, which stamps it onto the same event this flash is built
+    // from) -- shown here as a settled "took Xs" rather than a ticking
+    // timer, since the file is already done by the time this renders.
+    const took = f.elapsedMs != null ? ` (${formatDuration(f.elapsedMs)})` : "";
     if (f.ok) {
       const notes = [f.missing && "missing required fields", f.flagged && "flagged for review"].filter(Boolean);
-      return `<div class="bo-progress-line bo-progress-done">${ICONS.check} Extracted <strong>${escapeHtml(f.file)}</strong>${notes.length ? ` — ${notes.join(", ")}` : ""}</div>`;
+      return `<div class="bo-progress-line bo-progress-done">${ICONS.check} Extracted <strong>${escapeHtml(f.file)}</strong>${took}${notes.length ? ` — ${notes.join(", ")}` : ""}</div>`;
     }
-    return `<div class="bo-progress-line bo-progress-failed">${ICONS.x} Failed on <strong>${escapeHtml(f.file)}</strong>: ${escapeHtml(f.error || "unknown error")}</div>`;
+    return `<div class="bo-progress-line bo-progress-failed">${ICONS.x} Failed on <strong>${escapeHtml(f.file)}</strong>${took}: ${escapeHtml(f.error || "unknown error")}</div>`;
   }
   const p = state.progress;
   if (!p) {
     return `<div class="bo-progress-line bo-progress-idle"><span class="bo-progress-idle-dot"></span> Watching for new files…</div>`;
   }
   const pct = Math.round((p.pass / p.of) * 100);
+  // p.startedAt (set by main.js when the file's primary read began -- see
+  // its forwardLine PROGRESS handling) ticks live: patchProgressWidget is
+  // re-run once a second (see init()) purely so this number keeps counting
+  // up between actual pass_start/file_done events, which can otherwise be
+  // tens of seconds apart on a slow model.
+  const elapsed = p.startedAt ? formatDuration(Date.now() - p.startedAt) : null;
   return `
     <div class="bo-progress-line">
       <span class="bo-spinner"></span>
       ${escapeHtml(progressStageLabel(p))} <strong>${escapeHtml(p.file)}</strong>${p.of > 1 ? ` — pass ${p.pass} of ${p.of}` : ""}
+      ${elapsed ? `<span class="bo-progress-elapsed">${elapsed}</span>` : ""}
     </div>
     <div class="bo-progress-track"><div class="bo-progress-fill" style="width:${pct}%"></div></div>
   `;
@@ -457,6 +486,164 @@ function escapeHtml(str) {
 }
 function escapeAttr(str) {
   return escapeHtml(str ?? "");
+}
+
+// ---- Processing history ----
+// A modal (not a tab -- this single-page app has no tab system, see the
+// header comment at the top of this file) listing every file the pipeline
+// has finished, newest first, with per-file model/passes/duration -- backed
+// by main.js's history.json (via getHistory/onHistoryAdd) so it survives
+// app restarts. Same bm-modal-overlay/bm-modal markup BillManager's own
+// modals use (see styles.css) even though nothing in this app had wired
+// that pattern up until now.
+
+function openHistoryModal() {
+  state.historyModalOpen = true;
+  render();
+}
+function closeHistoryModal() {
+  state.historyModalOpen = false;
+  render();
+}
+
+async function onClearHistoryClick() {
+  if (!confirm("Clear all processing history? This can't be undone.")) return;
+  state.historyClearBusy = true;
+  render();
+  state.history = await window.api.clearHistory();
+  state.historyClearBusy = false;
+  render();
+}
+
+// New entries arrive one at a time (roughly once per file, seconds to
+// minutes apart) -- a full render() per event is plenty cheap at that rate,
+// unlike the fast-arriving pass_start/file_done pair the progress widget
+// patches incrementally instead (see patchProgressWidget's own comment).
+function onHistoryAddEvent(entry) {
+  state.history.unshift(entry);
+  render();
+}
+
+// Shared by the History modal's per-row/summary durations and the live Status
+// card timer (see renderProgressWidget) -- same "Xs"/"Xm Ys" shape either way.
+function formatDuration(ms) {
+  if (ms == null) return "—";
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) return `${totalSeconds < 10 ? totalSeconds.toFixed(1) : Math.round(totalSeconds)}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  return `${minutes}m ${seconds}s`;
+}
+
+// Full timestamp on hover (see the row's title attribute below); the visible
+// label stays short -- just a time for anything finished today, otherwise a
+// short date+time -- since the list is already sorted newest-first and a
+// full date on every row would just be repetitive noise for a recent batch.
+function formatHistoryTimestamp(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formTypeLabel(formType) {
+  if (formType === "CMS1500") return "CMS-1500";
+  if (formType === "UB04") return "UB-04";
+  return formType || null;
+}
+
+function computeHistorySummary(history) {
+  if (history.length === 0) return null;
+  const durations = history.map((h) => h.elapsedMs).filter((ms) => ms != null);
+  const avgMs = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
+  return {
+    total: history.length,
+    avgMs,
+    failed: history.filter((h) => !h.ok).length,
+    flagged: history.filter((h) => h.ok && h.flagged).length,
+  };
+}
+
+function renderHistoryRow(entry) {
+  const notes = [];
+  if (!entry.ok) notes.push(entry.error || "failed");
+  else {
+    if (entry.missing) notes.push("missing required fields");
+    if (entry.flagged) notes.push("flagged for review");
+  }
+  const metaBits = [
+    formTypeLabel(entry.formType),
+    entry.model || "unknown model",
+    entry.verificationPasses ? `${entry.verificationPasses} pass${entry.verificationPasses === 1 ? "" : "es"}` : null,
+    formatDuration(entry.elapsedMs),
+  ].filter(Boolean);
+  return `
+    <div class="bo-history-row">
+      <div class="bo-history-row-top">
+        <span class="${entry.ok ? "bo-history-ok" : "bo-history-failed"}">${entry.ok ? ICONS.check : ICONS.x}</span>
+        <span class="bo-history-file" title="${escapeAttr(entry.file)}">${escapeHtml(entry.file)}</span>
+        <span class="bo-history-time" title="${escapeAttr(entry.finishedAt || "")}">${formatHistoryTimestamp(entry.finishedAt)}</span>
+      </div>
+      <div class="bo-history-meta">
+        ${escapeHtml(metaBits.join(" · "))}${notes.length ? ` <span class="bo-history-notes">— ${escapeHtml(notes.join(", "))}</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderHistoryModal() {
+  const summary = computeHistorySummary(state.history);
+  const shown = state.history.slice(0, MAX_HISTORY_ROWS_SHOWN);
+  const summaryBits = summary
+    ? [
+        `${summary.total} file${summary.total === 1 ? "" : "s"} processed`,
+        summary.avgMs != null ? `avg ${formatDuration(summary.avgMs)}/file` : null,
+        summary.flagged ? `${summary.flagged} flagged for review` : null,
+        summary.failed ? `${summary.failed} failed` : null,
+      ].filter(Boolean)
+    : [];
+
+  const overlay = el(`
+    <div class="bm-modal-overlay" id="history-modal-overlay">
+      <div class="bm-modal bo-history-modal">
+        <div class="bm-modal-header">
+          <div class="bm-modal-title">Processing history</div>
+          <div class="bm-modal-sub">Every file the extraction pipeline has finished on this machine, most recent first.</div>
+        </div>
+        <div class="bm-modal-body">
+          ${summaryBits.length ? `<div class="bo-history-summary">${escapeHtml(summaryBits.join(" · "))}</div>` : ""}
+          <div class="bo-history-list" id="history-list">
+            ${
+              state.history.length === 0
+                ? '<div class="bo-history-empty">Nothing processed yet.</div>'
+                : shown.map(renderHistoryRow).join("")
+            }
+          </div>
+          ${
+            state.history.length > shown.length
+              ? `<div class="bo-history-truncated">Showing the most recent ${shown.length} of ${state.history.length}.</div>`
+              : ""
+          }
+        </div>
+        <div class="bm-modal-footer">
+          <button class="bm-btn bm-btn-danger bm-btn-sm" id="history-clear-btn" ${
+            state.history.length === 0 || state.historyClearBusy ? "disabled" : ""
+          }>${state.historyClearBusy ? "Clearing…" : "Clear history"}</button>
+          <button class="bm-btn bm-btn-primary bm-btn-sm" id="history-close-btn">Close</button>
+        </div>
+      </div>
+    </div>
+  `);
+
+  overlay.addEventListener("mousedown", (e) => {
+    if (e.target === overlay) closeHistoryModal();
+  });
+  overlay.querySelector("#history-close-btn").addEventListener("click", closeHistoryModal);
+  overlay.querySelector("#history-clear-btn").addEventListener("click", onClearHistoryClick);
+  return overlay;
 }
 
 async function onStartStopClick() {
@@ -544,6 +731,10 @@ function render() {
   const prevScrollTop = prevPage ? prevPage.scrollTop : 0;
   const prevLogPane = document.getElementById("log-pane");
   const prevLogScrollTop = prevLogPane ? prevLogPane.scrollTop : 0;
+  // Same reasoning again for the History modal's own scrollable list, so
+  // browsing through it isn't interrupted mid-scroll by the periodic refresh.
+  const prevHistoryList = document.getElementById("history-list");
+  const prevHistoryScrollTop = prevHistoryList ? prevHistoryList.scrollTop : 0;
   const active = document.activeElement;
   const focusId = active && active.id && app.contains(active) ? active.id : null;
   const selection =
@@ -554,9 +745,12 @@ function render() {
   root.appendChild(renderTitlebar());
   root.appendChild(renderPage());
   app.appendChild(root);
+  if (state.historyModalOpen) app.appendChild(renderHistoryModal());
 
   const newPage = document.querySelector(".bo-page");
   if (newPage) newPage.scrollTop = prevScrollTop;
+  const newHistoryList = document.getElementById("history-list");
+  if (newHistoryList) newHistoryList.scrollTop = prevHistoryScrollTop;
 
   if (focusId) {
     const restored = document.getElementById(focusId);
@@ -608,6 +802,9 @@ function appendLogLine(entry) {
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (state.theme === "system") applyTheme(state.theme);
   });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.historyModalOpen) closeHistoryModal();
+  });
   await refreshStatus();
   render();
 
@@ -615,11 +812,21 @@ function appendLogLine(entry) {
   checkOllama(state.settings.ollamaHost);
   refreshPendingCount();
 
+  // history.json stores oldest-first (each finished file just gets appended
+  // -- see main.js's appendHistoryEntry); reverse once here so state.history
+  // stays newest-first throughout, matching what onHistoryAddEvent's
+  // unshift() produces for entries that arrive later.
+  window.api.getHistory().then((entries) => {
+    state.history = entries.slice().reverse();
+    if (state.historyModalOpen) render();
+  });
+
   window.api.onUpdateStatus((status) => setUpdateStatus(status));
   checkForUpdates(); // not awaited -- a startup check shouldn't hold up the page
 
   window.api.onPipelineLog((entry) => appendLogLine(entry));
   window.api.onPipelineProgress((event) => onPipelineProgressEvent(event));
+  window.api.onHistoryAdd((entry) => onHistoryAddEvent(entry));
   window.api.onPipelineExited((info) => {
     // The process is gone -- any in-flight pass or "just finished" flash is
     // now stale (see onPipelineProgressEvent for the timer this clears).
@@ -642,4 +849,12 @@ function appendLogLine(entry) {
     await refreshPendingCount();
     render();
   }, 5000);
+
+  // Ticks the Status card's elapsed-time readout once a second so it counts
+  // up live between actual pass_start/file_done events (which can be tens of
+  // seconds apart on a slow model) -- a cheap targeted patch, not a full
+  // render(), same as onPipelineProgressEvent's own calls to this. Harmless
+  // (and a no-op re-render of the same idle/done content) when nothing is
+  // actually in flight.
+  setInterval(patchProgressWidget, 1000);
 })();

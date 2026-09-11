@@ -17,7 +17,7 @@
 .bo-update-row { font-size: 12px; color: var(--text-caption); }
 .bo-update-clickable { cursor: pointer; }
 .bo-update-clickable:hover { color: var(--text-heading); }
-.bo-update-error { color: #9c4a3d; }
+.bo-update-error { color: var(--danger-text); }
 
 .bo-card {
   background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: var(--radius-control);
@@ -32,7 +32,7 @@
 .bo-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-body); }
 .bo-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray-400); flex-shrink: 0; }
 .bo-dot.ok { background: var(--accent-text); }
-.bo-dot.bad { background: #9c4a3d; }
+.bo-dot.bad { background: var(--danger-text); }
 .bo-dot.pending { background: var(--gray-400); animation: bo-pulse 1.2s ease-in-out infinite; }
 @keyframes bo-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
@@ -50,9 +50,13 @@
    stopped) collapses to nothing rather than leaving a blank gap. */
 .bo-progress-line { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-body); }
 .bo-progress-line.bo-progress-done { color: var(--accent-text); }
-.bo-progress-line.bo-progress-failed { color: #9c4a3d; }
+.bo-progress-line.bo-progress-failed { color: var(--danger-text); }
 .bo-progress-line svg { flex-shrink: 0; }
 .bo-progress-idle-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gray-400); flex-shrink: 0; }
+/* The live/final duration readout (see renderProgressWidget) -- pushed to
+   the line's right edge, monospace so it doesn't visually jitter as the
+   digits tick over every second. */
+.bo-progress-elapsed { margin-left: auto; font-family: var(--font-condensed); font-size: 12px; color: var(--text-caption); flex-shrink: 0; }
 
 .bo-spinner {
   width: 13px; height: 13px; flex-shrink: 0; border-radius: 50%;
@@ -91,7 +95,7 @@
 .bo-log-empty { color: #767a78; font-style: italic; }
 
 .bo-error-banner {
-  background: #f6e9e6; color: #9c4a3d; border: 1px solid #e3c3bb; border-radius: var(--radius-control);
+  background: var(--danger-surface); color: var(--danger-text); border: 1px solid var(--danger-text); border-radius: var(--radius-control);
   padding: var(--space-3) var(--space-4); font-size: 13px; line-height: 1.5; white-space: pre-wrap;
 }
 
@@ -99,3 +103,27 @@
    Keep-alive field pairs a plain .bm-input with a button the same way, so
    it needs the same treatment. */
 .bm-field-row .bm-input { flex: 1; min-width: 0; }
+
+/* ---- Processing history modal (see renderHistoryModal/openHistoryModal in
+   renderer.js) -- same .bm-modal-overlay/.bm-modal shell BillManager's own
+   modals use (see styles.css), just never wired up in this app until now. */
+.bo-history-modal { width: 620px; max-width: calc(100vw - 40px); }
+
+.bo-history-summary {
+  font-family: var(--font-condensed); font-size: 12px; letter-spacing: var(--tracking-label);
+  color: var(--text-caption); text-transform: uppercase;
+}
+
+.bo-history-list { max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; }
+.bo-history-empty { color: var(--gray-400); font-style: italic; font-size: 13px; padding: var(--space-3) 0; }
+.bo-history-truncated { font-size: 12px; color: var(--text-caption); text-align: center; }
+
+.bo-history-row { padding: var(--space-3) 0; border-bottom: 1px solid var(--border-hairline); }
+.bo-history-row:last-child { border-bottom: none; }
+.bo-history-row-top { display: flex; align-items: center; gap: 8px; }
+.bo-history-file { font-size: 13px; color: var(--text-heading); font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bo-history-time { font-family: var(--font-condensed); font-size: 12px; color: var(--text-caption); flex-shrink: 0; }
+.bo-history-ok { color: var(--accent-text); display: inline-flex; flex-shrink: 0; }
+.bo-history-failed { color: var(--danger-text); display: inline-flex; flex-shrink: 0; }
+.bo-history-meta { font-size: 12px; color: var(--text-caption); margin-top: 2px; padding-left: 22px; }
+.bo-history-notes { color: var(--danger-text); }

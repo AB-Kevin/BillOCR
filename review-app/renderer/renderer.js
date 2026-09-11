@@ -588,9 +588,13 @@ const BOOLEAN_FIELD_OPTIONS = {
   ssn_box_checked: CHECKBOX_OPTIONS,
   ein_box_checked: CHECKBOX_OPTIONS,
 };
+// Yes first, then No -- matches the form itself, which prints every real
+// yes/no box (Box 20's outside lab, Box 27's accept assignment, etc. -- see
+// claim_schemas.py's *_BOOLEAN_FIELDS descriptions) with YES to the left of
+// NO, and labels them that way rather than generic True/False.
 const DEFAULT_BOOLEAN_OPTIONS = [
-  { value: false, label: "False" },
-  { value: true, label: "True" },
+  { value: true, label: "Yes" },
+  { value: false, label: "No" },
 ];
 
 // --- Array field editors -----------------------------------------------
@@ -614,16 +618,21 @@ function objectArrayItemSpec(formType, key) {
 }
 
 function stringArrayRowHtml(value) {
+  // tabindex="-1" on the remove button (and every other non-text control in
+  // the form -- see the same on the boolean toggles/add buttons/flag
+  // actions below) keeps it clickable but out of the Tab order, so tabbing
+  // through a list of these rows lands on each row's actual value, not on
+  // "value, remove, value, remove, ...".
   return `<div class="rv-array-row" data-array-row>
     <input class="bm-input" data-array-value value="${escapeAttr(value ?? "")}" />
-    <button class="rv-array-remove-btn" data-array-remove type="button" title="Remove">${ICONS.remove}</button>
+    <button class="rv-array-remove-btn" data-array-remove type="button" tabindex="-1" title="Remove">${ICONS.remove}</button>
   </div>`;
 }
 
 function nestedArrayChipHtml(value) {
   return `<span class="rv-nested-chip" data-nested-row>
     <input class="rv-nested-input" data-nested-value value="${escapeAttr(value ?? "")}" />
-    <button class="rv-nested-remove-btn" data-nested-remove type="button" title="Remove">${ICONS.remove}</button>
+    <button class="rv-nested-remove-btn" data-nested-remove type="button" tabindex="-1" title="Remove">${ICONS.remove}</button>
   </span>`;
 }
 
@@ -657,7 +666,7 @@ function objectArrayItemHtml(spec, item, itemFlags, arrayKey, index) {
           <span class="rv-line-item-label">${escapeHtml(label)}</span>
           <div class="rv-nested-array" data-nested-array data-nested-key="${escapeAttr(subKey)}">
             <div class="rv-nested-rows">${values.map(nestedArrayChipHtml).join("")}</div>
-            <button class="rv-nested-add-btn" data-nested-add type="button" title="Add">${ICONS.plus}</button>
+            <button class="rv-nested-add-btn" data-nested-add type="button" tabindex="-1" title="Add">${ICONS.plus}</button>
           </div>
           ${flagHtml}
         </div>`;
@@ -673,7 +682,7 @@ function objectArrayItemHtml(spec, item, itemFlags, arrayKey, index) {
         const buttonsHtml = options
           .map(
             (opt) =>
-              `<button class="bm-theme-toggle-btn ${v === opt.value ? "active" : ""}" data-bool-set="${opt.value}" type="button">${escapeHtml(opt.label)}</button>`
+              `<button class="bm-theme-toggle-btn ${v === opt.value ? "active" : ""}" data-bool-set="${opt.value}" type="button" tabindex="-1">${escapeHtml(opt.label)}</button>`
           )
           .join("");
         return `<div class="rv-line-item-field ${flagClass}">
@@ -694,7 +703,7 @@ function objectArrayItemHtml(spec, item, itemFlags, arrayKey, index) {
     .join("");
   return `<div class="rv-line-item ${anyFieldFlagged ? "flagged" : ""}" data-array-row>
     <div class="rv-line-item-fields">${fieldsHtml}</div>
-    <button class="rv-array-remove-btn rv-line-item-remove-btn" data-array-remove type="button" title="Remove line">${ICONS.remove}</button>
+    <button class="rv-array-remove-btn rv-line-item-remove-btn" data-array-remove type="button" tabindex="-1" title="Remove line">${ICONS.remove}</button>
   </div>`;
 }
 
@@ -720,7 +729,7 @@ function renderArrayField(formType, key, value, flagged) {
   const addLabel = spec ? "Add line" : "Add";
   return `<div class="rv-array-editor" id="field-${key}" data-array-field data-array-kind="${kind}">
     <div class="rv-array-rows">${rowsHtml}</div>
-    <button class="bm-btn bm-btn-secondary bm-btn-sm rv-array-add-btn" data-array-add type="button">${ICONS.plus} ${addLabel}</button>
+    <button class="bm-btn bm-btn-secondary bm-btn-sm rv-array-add-btn" data-array-add type="button" tabindex="-1">${ICONS.plus} ${addLabel}</button>
   </div>`;
 }
 
@@ -886,7 +895,7 @@ function flagReasonHtml(key, entries) {
     if (e.type === "disagreement" && e.value !== undefined) {
       const link = `<button type="button" class="rv-flag-reason-link" data-flag-use="${escapeAttr(
         key
-      )}" data-flag-value="${escapeAttr(JSON.stringify(e.value))}">${escapeHtml(formatFlagValue(e.value))}</button>`;
+      )}" data-flag-value="${escapeAttr(JSON.stringify(e.value))}" tabindex="-1">${escapeHtml(formatFlagValue(e.value))}</button>`;
       const wasText = e.primary_value !== undefined ? escapeHtml(formatFlagValue(e.primary_value)) : "the current value";
       return `pass ${e.pass} read ${link} instead of ${wasText}`;
     }
@@ -899,7 +908,7 @@ function flagActionsHtml(key, entries) {
   if (!entries || entries.length === 0) return "";
   return `
     <div class="rv-flag-actions">
-      <button type="button" class="rv-flag-action rv-flag-approve" data-flag-approve="${escapeAttr(key)}">Approve current value</button>
+      <button type="button" class="rv-flag-action rv-flag-approve" data-flag-approve="${escapeAttr(key)}" tabindex="-1">Approve current value</button>
     </div>`;
 }
 
@@ -1244,7 +1253,7 @@ function renderReviewView() {
         const buttonsHtml = options
           .map((opt) => {
             const isActive = value === opt.value;
-            return `<button class="bm-theme-toggle-btn ${isActive ? "active" : ""}" data-bool-set="${opt.value}" type="button">${escapeHtml(opt.label)}</button>`;
+            return `<button class="bm-theme-toggle-btn ${isActive ? "active" : ""}" data-bool-set="${opt.value}" type="button" tabindex="-1">${escapeHtml(opt.label)}</button>`;
           })
           .join("");
         inputHtml = `
@@ -1318,6 +1327,7 @@ function renderReviewView() {
 
   wireImagePane(main, imagePath, record.claim_id);
   wireResizeHandle(main);
+  wireFormPaneScroll(main);
 
   main.querySelectorAll("[data-flag-approve]").forEach((btn) => {
     btn.addEventListener("click", () => dismissFlag(btn.dataset.flagApprove));
@@ -1527,6 +1537,29 @@ function wireResizeHandle(root) {
     handle.addEventListener("pointermove", onMove);
     handle.addEventListener("pointerup", onUp);
   });
+}
+
+// A focused (or even just hovered) <input>/<textarea>/<select> keeps its own
+// wheel events to itself rather than letting them bubble up to the pane's
+// scroll -- real Chromium behavior for editable form controls, not something
+// this app's own code does -- so mouse-wheel scrolling .rv-review-form-pane
+// silently does nothing the moment the pointer is over one of its fields
+// (which, on a form that's mostly fields, is most of it). Forward the wheel
+// delta onto the pane by hand whenever that's the target; everywhere else in
+// the pane (labels, hints, the gaps between fields) already scrolls fine
+// natively and is left alone.
+function wireFormPaneScroll(root) {
+  const pane = root.querySelector(".rv-review-form-pane");
+  if (!pane) return;
+  pane.addEventListener(
+    "wheel",
+    (e) => {
+      if (!e.target.closest("input, textarea, select")) return;
+      pane.scrollTop += e.deltaY;
+      e.preventDefault();
+    },
+    { passive: false }
+  );
 }
 
 // --- Organization settings view ---------------------------------------------
