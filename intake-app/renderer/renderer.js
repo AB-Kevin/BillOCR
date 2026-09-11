@@ -5,7 +5,8 @@
 
 const state = {
   settings: null,
-  status: { running: false, pid: null, startedAt: null },
+  theme: "system", // "system" | "light" | "dark" | "midnight" -- see applyTheme()/setTheme()/resolveTheme(); persisted in settings.json alongside everything else
+  status: { running: false, pid: null, startedAt: null, progress: null },
   pythonCheck: null, // {ok, version} | {ok:false, error} | null (checking)
   ollamaCheck: null,
   pendingCount: 0,
@@ -15,6 +16,12 @@ const state = {
   busy: false, // Start/Stop in flight
   stopModelStatus: null, // brief feedback text under the "Stop now" button
   updateStatus: { state: "idle" }, // idle | checking | available | available-manual | downloading | downloaded | not-available | error
+  // Live "what's it doing right now" widget in the Status card (see
+  // renderProgressWidget/patchProgressWidget) -- driven by extract_claim_fields.py's
+  // PROGRESS lines (see common.emit_progress), forwarded here as "pipeline:progress"
+  // IPC pushes (see main.js's forwardLine).
+  progress: null, // {event:"pass_start", file, pass, of, stage} | null (idle/watching)
+  doneFlash: null, // {file, ok, claim_id, missing, flagged, error} | null -- brief "✓/✗" shown after a file_done event, see scheduleDoneFlashClear()
 };
 
 const MAX_LOG_LINES = 500;
@@ -33,23 +40,92 @@ const ICONS = {
   maximize: icon('<rect x="5" y="5" width="14" height="14" rx="1"/>'),
   close: icon('<line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/>'),
   folder: icon('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>', 14),
+  check: icon('<polyline points="20 6 9 17 4 12"/>', 14),
+  x: icon('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', 14),
 };
 
+// True on macOS/Windows, computed once (not per-render): navigator.platform
+// is a plain web API, available in the renderer with no preload/IPC surface
+// of its own even under contextIsolation. IS_MAC is set as a class on <html>
+// immediately so CSS keyed off .is-mac (see styles.css's
+// .is-mac .bm-titlebar-brand) is correct from the very first paint.
+const IS_MAC = /Mac/i.test(navigator.platform);
+const IS_WINDOWS = /Win/i.test(navigator.platform);
+document.documentElement.classList.toggle("is-mac", IS_MAC);
+
+// The window is frameless only where neither OS offers a native alternative
+// (Linux) -- there, the app draws its own chrome and wires the three
+// controls to real window operations over IPC. On macOS, main.js instead
+// uses titleBarStyle:"hiddenInset" (real traffic lights); on Windows,
+// titleBarStyle:"hidden" + titleBarOverlay (real Fluent caption buttons,
+// Snap Layouts included) -- either way the OS insets native buttons into
+// this same custom bar, so the hand-drawn ones would be redundant (and, on
+// Windows, would literally overlap the native ones in the same top-right
+// corner) and are skipped entirely; only the drag region and title text are
+// still ours.
 function renderTitlebar() {
+  const hasNativeButtons = IS_MAC || IS_WINDOWS;
   const bar = el(`
     <div class="bm-titlebar">
       <div class="bm-titlebar-brand"><span class="bm-titlebar-title">BillOCR Intake</span></div>
-      <div class="bm-titlebar-controls">
+      ${
+        hasNativeButtons
+          ? ""
+          : `<div class="bm-titlebar-controls">
         <button class="bm-titlebar-btn" id="win-minimize" title="Minimize">${ICONS.minimize}</button>
         <button class="bm-titlebar-btn" id="win-maximize" title="Maximize">${ICONS.maximize}</button>
         <button class="bm-titlebar-btn bm-titlebar-close" id="win-close" title="Close">${ICONS.close}</button>
-      </div>
+      </div>`
+      }
     </div>
   `);
-  bar.querySelector("#win-minimize").addEventListener("click", () => window.api.windowMinimize());
-  bar.querySelector("#win-maximize").addEventListener("click", () => window.api.windowMaximizeToggle());
-  bar.querySelector("#win-close").addEventListener("click", () => window.api.windowClose());
+  bar.querySelector("#win-minimize")?.addEventListener("click", () => window.api.windowMinimize());
+  bar.querySelector("#win-maximize")?.addEventListener("click", () => window.api.windowMaximizeToggle());
+  bar.querySelector("#win-close")?.addEventListener("click", () => window.api.windowClose());
   return bar;
+}
+
+// System/light/dark/midnight -- same .bm-theme-toggle widget as BillManager's
+// Options modal, now with the same 4th "System" choice added there too; only
+// where it lives differs (a row in this app's own Settings card, since this
+// single-page app has no rail+modal to put it in). See styles.css's
+// :root/[data-theme="dark"]/[data-theme="midnight"] blocks for the actual
+// palettes -- already present here byte-for-byte, ported along with the
+// rest of the shared design system, just never wired up to anything yet.
+const THEME_CHOICES = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "midnight", label: "Midnight" },
+];
+
+// "system" (the default -- see main.js's DEFAULT_SETTINGS.theme) has no CSS
+// palette of its own -- it maps 1:1 onto plain light or dark, matching the
+// OS's own preference, and never resolves to midnight (that's only ever
+// reached by an explicit choice). matchMedia's "prefers-color-scheme: dark"
+// is the renderer-side read of that OS preference -- see main.js's
+// nativeTheme.shouldUseDarkColors for the equivalent used pre-paint, in the
+// main process, before this window (and so this API) exists yet.
+function resolveTheme(pref) {
+  if (pref === "system" || !pref) return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return pref;
+}
+
+// Applied before the very first render() (see init()) so the window paints
+// in the right theme from frame one instead of flashing light-then-dark --
+// same ordering trick BillManager's own init() uses. Takes the raw
+// preference (including "system") and resolves it -- state.theme itself
+// keeps the raw preference, so the toggle can still show "System" as the
+// active choice rather than whichever theme it happened to resolve to.
+function applyTheme(pref) {
+  document.documentElement.setAttribute("data-theme", resolveTheme(pref));
+}
+
+async function setTheme(theme) {
+  state.theme = theme;
+  applyTheme(theme);
+  render();
+  state.settings = await window.api.setSettings({ theme });
 }
 
 function statusDot(kind) {
@@ -163,6 +239,7 @@ function renderPage() {
           <div class="bo-status">${statusDot(ollamaInfo.dot)} ${ollamaInfo.text}</div>
           <div class="bo-pending-badge">${state.pendingCount} claim${state.pendingCount === 1 ? "" : "s"} awaiting review</div>
         </div>
+        <div id="progress-widget">${renderProgressWidget()}</div>
         <div class="bo-start-row">
           <button class="bm-btn bm-btn-primary" id="start-stop-btn" ${state.busy || !s.workspaceFolder ? "disabled" : ""}>
             ${running ? "Stop" : "Start"}
@@ -214,6 +291,15 @@ function renderPage() {
           </label>
         </div>
         <div class="bo-toggle-row">
+          <span class="bo-toggle-label">Theme</span>
+          <div class="bm-theme-toggle" role="group" id="theme-toggle">
+            ${THEME_CHOICES.map(
+              (choice) =>
+                `<button class="bm-theme-toggle-btn ${state.theme === choice.value ? "active" : ""}" data-theme-choice="${choice.value}" type="button">${choice.label}</button>`
+            ).join("")}
+          </div>
+        </div>
+        <div class="bo-toggle-row">
           <span class="bo-toggle-label">Start automatically when this machine logs in</span>
           <label class="bm-checkbox-label">
             <input type="checkbox" id="field-openAtLogin" ${s.openAtLogin ? "checked" : ""} />
@@ -248,6 +334,9 @@ function renderPage() {
   page.querySelector("#start-stop-btn").addEventListener("click", onStartStopClick);
   page.querySelector("#choose-folder-btn").addEventListener("click", onChooseFolderClick);
   page.querySelector("#stop-model-btn").addEventListener("click", onStopModelClick);
+  page.querySelectorAll("#theme-toggle [data-theme-choice]").forEach((btn) =>
+    btn.addEventListener("click", () => setTheme(btn.dataset.themeChoice))
+  );
   bindUpdateAction(page);
 
   const bindField = (id, key, transform, onSaved) => {
@@ -279,6 +368,81 @@ function renderPage() {
   });
 
   return page;
+}
+
+// How long a file_done result (✓/✗) stays visible before the widget reverts
+// to "Watching for new files…" -- long enough to actually read on a quick
+// glance, short enough not to look stuck once the pipeline has moved on.
+const DONE_FLASH_MS = 6000;
+let doneFlashTimer = null;
+
+function progressStageLabel(event) {
+  return event.stage === "primary" ? "Reading" : "Re-checking";
+}
+
+// The Status card's live "what's it doing right now" indicator (see the
+// state.progress/state.doneFlash doc comments) -- three states: a file_done
+// result flashed briefly, an active pass (spinner + a determinate N-of-M
+// progress bar, per user feedback asking for "a moving circle... or even
+// better a full status bar"), or idle/watching. Returns innerHTML only
+// (not a full element) so both renderPage()'s initial build and
+// patchProgressWidget()'s incremental update below can share it without
+// going through a full render() on every progress event -- see render()'s
+// own comment on why a full rebuild every few seconds already has to fight
+// to preserve scroll/focus, which a live event stream would make worse.
+function renderProgressWidget() {
+  if (!state.status.running) return "";
+  if (state.doneFlash) {
+    const f = state.doneFlash;
+    if (f.ok) {
+      const notes = [f.missing && "missing required fields", f.flagged && "flagged for review"].filter(Boolean);
+      return `<div class="bo-progress-line bo-progress-done">${ICONS.check} Extracted <strong>${escapeHtml(f.file)}</strong>${notes.length ? ` — ${notes.join(", ")}` : ""}</div>`;
+    }
+    return `<div class="bo-progress-line bo-progress-failed">${ICONS.x} Failed on <strong>${escapeHtml(f.file)}</strong>: ${escapeHtml(f.error || "unknown error")}</div>`;
+  }
+  const p = state.progress;
+  if (!p) {
+    return `<div class="bo-progress-line bo-progress-idle"><span class="bo-progress-idle-dot"></span> Watching for new files…</div>`;
+  }
+  const pct = Math.round((p.pass / p.of) * 100);
+  return `
+    <div class="bo-progress-line">
+      <span class="bo-spinner"></span>
+      ${escapeHtml(progressStageLabel(p))} <strong>${escapeHtml(p.file)}</strong>${p.of > 1 ? ` — pass ${p.pass} of ${p.of}` : ""}
+    </div>
+    <div class="bo-progress-track"><div class="bo-progress-fill" style="width:${pct}%"></div></div>
+  `;
+}
+
+// Patches just the progress widget's own subtree in place -- called from
+// the pipeline:progress subscription (see init()) instead of the full
+// render(), so a fast-arriving pass_start (a check pass can complete in a
+// couple of seconds) never resets page scroll or interrupts whatever the
+// user is mid-typing in a settings field the way a full rebuild would risk
+// on every event.
+function patchProgressWidget() {
+  const el = document.getElementById("progress-widget");
+  if (el) el.innerHTML = renderProgressWidget();
+}
+
+function onPipelineProgressEvent(event) {
+  if (doneFlashTimer) {
+    clearTimeout(doneFlashTimer);
+    doneFlashTimer = null;
+  }
+  if (event.event === "file_done") {
+    state.progress = null;
+    state.doneFlash = event;
+    doneFlashTimer = setTimeout(() => {
+      state.doneFlash = null;
+      doneFlashTimer = null;
+      patchProgressWidget();
+    }, DONE_FLASH_MS);
+  } else {
+    state.doneFlash = null;
+    state.progress = event;
+  }
+  patchProgressWidget();
 }
 
 function renderLogLines() {
@@ -328,6 +492,13 @@ async function onStopModelClick() {
 
 async function refreshStatus() {
   state.status = await window.api.pipelineStatus();
+  // Reconcile with main.js's own record of the current pass (see
+  // pipelineStatus()/lastProgress in main.js) -- catches a window that
+  // (re)opened mid-processing and so missed the pipeline:progress push
+  // that would otherwise be the only way to learn about it. Doesn't touch
+  // doneFlash: that's a purely local, timed "✓/✗ just now" flash (see
+  // onPipelineProgressEvent) with no equivalent on the main-process side.
+  state.progress = state.status.progress;
 }
 async function refreshPendingCount() {
   state.pendingCount = await window.api.pendingCount();
@@ -426,7 +597,18 @@ function appendLogLine(entry) {
 
 (async function init() {
   state.settings = await window.api.getSettings();
-  state.status = await window.api.pipelineStatus();
+  // Applied before the first render (and before any other await) so the
+  // window paints in the right theme instead of flashing light-then-dark --
+  // same ordering BillManager's own init() uses for the same reason.
+  state.theme = state.settings.theme || "system";
+  applyTheme(state.theme);
+  // Keeps "System" in sync with the OS while the app stays open, not just at
+  // launch -- e.g. macOS switching to Dark Mode at sunset. Guarded so it
+  // never overrides an explicit Light/Dark/Midnight choice.
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (state.theme === "system") applyTheme(state.theme);
+  });
+  await refreshStatus();
   render();
 
   checkPython(state.settings.pythonPath);
@@ -437,7 +619,15 @@ function appendLogLine(entry) {
   checkForUpdates(); // not awaited -- a startup check shouldn't hold up the page
 
   window.api.onPipelineLog((entry) => appendLogLine(entry));
+  window.api.onPipelineProgress((event) => onPipelineProgressEvent(event));
   window.api.onPipelineExited((info) => {
+    // The process is gone -- any in-flight pass or "just finished" flash is
+    // now stale (see onPipelineProgressEvent for the timer this clears).
+    if (doneFlashTimer) {
+      clearTimeout(doneFlashTimer);
+      doneFlashTimer = null;
+    }
+    state.doneFlash = null;
     refreshStatus().then(() => {
       if (info.error) state.startError = info.error;
       else if (info.code !== 0 && info.code !== null) state.startError = `Pipeline exited unexpectedly (code ${info.code}). Check the log above.`;

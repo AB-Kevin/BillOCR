@@ -42,6 +42,37 @@
   color: var(--text-caption); margin-left: auto;
 }
 
+/* Live "what's it doing right now" widget (see renderProgressWidget/
+   patchProgressWidget in renderer.js) -- a spinner + determinate N-of-M bar
+   while a pass is running, a brief ✓/✗ flash once a file finishes, or an
+   idle "watching" line otherwise. #progress-widget itself has no styling
+   (its content decides its own layout) so an empty string (pipeline
+   stopped) collapses to nothing rather than leaving a blank gap. */
+.bo-progress-line { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-body); }
+.bo-progress-line.bo-progress-done { color: var(--accent-text); }
+.bo-progress-line.bo-progress-failed { color: #9c4a3d; }
+.bo-progress-line svg { flex-shrink: 0; }
+.bo-progress-idle-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gray-400); flex-shrink: 0; }
+
+.bo-spinner {
+  width: 13px; height: 13px; flex-shrink: 0; border-radius: 50%;
+  border: 2px solid var(--border-hairline); border-top-color: var(--accent-text);
+  animation: bo-spin 0.7s linear infinite;
+}
+@keyframes bo-spin { to { transform: rotate(360deg); } }
+
+.bo-progress-track {
+  /* --border-hairline (not --gray-100, which stays pale in dark mode too --
+     see styles.css's [data-theme="dark"] block) so the empty track reads
+     as a subtle recess in both themes, not a bright bar in the dark one. */
+  height: 4px; border-radius: 2px; background: var(--border-hairline);
+  overflow: hidden; margin-top: 6px;
+}
+.bo-progress-fill {
+  height: 100%; border-radius: 2px; background: var(--accent-text);
+  transition: width 0.3s ease;
+}
+
 .bo-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); }
 
 .bo-path-row { display: flex; align-items: center; gap: var(--space-2); }

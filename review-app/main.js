@@ -7,7 +7,7 @@
 // approved/. See pipeline/build_one.py for why this doesn't use
 // build_837.py's watcher.
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
@@ -48,6 +48,7 @@ const DEFAULT_SETTINGS = {
   workspaceFolder: null,
   pythonPath: process.platform === "win32" ? "python" : "python3",
   imagePaneWidth: 480, // remembered width of the review screen's image pane, dragged via its resize handle
+  theme: "system", // "system" | "light" | "dark" | "midnight" -- see renderer.js's applyTheme()/setTheme()/resolveTheme()
 };
 
 function readSettings() {
@@ -95,6 +96,7 @@ autoUpdater.setFeedURL({ provider: "custom", updateProvider: PrefixedGitHubProvi
 // in-app, we hand the user off to that release's GitHub page to grab the
 // new .dmg themselves.
 const IS_MAC = process.platform === "darwin";
+const IS_WINDOWS = process.platform === "win32";
 
 function sendUpdateStatus(status) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -356,6 +358,11 @@ ipcMain.handle("settings-get", () => readSettings());
 ipcMain.handle("settings-set", (_e, patch) => {
   const next = writeSettings(patch);
   if (patch.pythonPath) loadSchema(next.pythonPath);
+  // Keep Windows's native titleBarOverlay buttons matching the theme the
+  // moment it's changed, not just at next launch -- see resolveTitleBarOverlay.
+  if (IS_WINDOWS && typeof patch.theme === "string" && mainWindow) {
+    mainWindow.setTitleBarOverlay(resolveTitleBarOverlay(patch.theme));
+  }
   return next;
 });
 
@@ -671,16 +678,64 @@ ipcMain.handle("uses-bundled-pipeline", () => !!PIPELINE_CLI_PATH);
 
 // --- App lifecycle ---------------------------------------------------------
 
+// Matches styles.css's --surface-page/--text-body for each theme (see
+// [data-theme="dark"]/[data-theme="midnight"]) -- used for the BrowserWindow's
+// own backgroundColor (painted before any HTML/CSS loads, so a dark/midnight
+// user gets that color from the very first frame instead of a flash of white
+// while renderer.js's init() reads settings and calls applyTheme()) and, on
+// Windows, the native titleBarOverlay's button colors -- see resolveTitleBarOverlay.
+const THEME_BACKGROUNDS = { light: "#FFFFFF", dark: "#1b1c1e", midnight: "#232527" };
+const THEME_OVERLAY_SYMBOLS = { light: "#231f20", dark: "#ececec", midnight: "#e7e9e8" };
+
+// "system" (the default -- see DEFAULT_SETTINGS.theme) has no CSS/background
+// of its own; it resolves to plain light or dark by way of the OS's own
+// preference, mirrored one-to-one (never midnight, which is only ever
+// reached by an explicit choice -- see renderer.js's own resolveTheme()).
+// nativeTheme.shouldUseDarkColors is Electron's synchronous read of that OS
+// preference, usable here in the main process before any window/renderer
+// exists yet, unlike the renderer's window.matchMedia equivalent.
+function resolveThemeName(pref) {
+  return pref === "system" || !pref ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : pref;
+}
+
+function resolveThemeBackground(pref) {
+  return THEME_BACKGROUNDS[resolveThemeName(pref)] || THEME_BACKGROUNDS.light;
+}
+
+// Windows only -- see createWindow()'s IS_WINDOWS branch. height:44 matches
+// the custom titlebar's own height (styles.css's .bm-titlebar) so the native
+// buttons sit centered in it rather than a mismatched OS-default size.
+function resolveTitleBarOverlay(pref) {
+  const theme = resolveThemeName(pref);
+  return { color: THEME_BACKGROUNDS[theme] || THEME_BACKGROUNDS.light, symbolColor: THEME_OVERLAY_SYMBOLS[theme] || THEME_OVERLAY_SYMBOLS.light, height: 44 };
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: resolveThemeBackground(readSettings().theme),
     autoHideMenuBar: true,
-    frame: false,
     icon: path.join(__dirname, "build", "icon.png"),
+    // Native OS window controls inset into our own custom title bar, on
+    // whichever platform offers a way to do that -- everything else about
+    // the custom bar (the drag region, the title text) is unchanged and
+    // still ours; only the three buttons themselves become the OS's, and
+    // renderer.js's IS_MAC/IS_WINDOWS checks skip drawing its own redundant
+    // ones wherever this applies. macOS: real traffic lights via
+    // hiddenInset. Windows: titleBarOverlay -- real Fluent caption buttons
+    // (Snap Layouts included) themed to match the current app theme, kept
+    // in sync on theme changes by the settings-set handler and the
+    // nativeTheme "updated" listener below. Anywhere else (Linux), neither
+    // API exists, so frame:false + our own drawn buttons stays exactly as
+    // it was before any of this.
+    ...(IS_MAC
+      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 14 } }
+      : IS_WINDOWS
+        ? { titleBarStyle: "hidden", titleBarOverlay: resolveTitleBarOverlay(readSettings().theme) }
+        : { frame: false }),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -715,6 +770,17 @@ function createWindow() {
     }, 3000);
   });
 }
+
+// Keeps Windows's native titleBarOverlay in sync with OS-level dark/light
+// changes while the app is running (e.g. Windows switching modes at
+// sunset), mirroring the renderer's own matchMedia listener -- but only
+// when the stored preference is "system" (or unset); an explicit
+// Light/Dark/Midnight choice must never be overridden by this.
+nativeTheme.on("updated", () => {
+  if (!IS_WINDOWS || !mainWindow) return;
+  const pref = readSettings().theme;
+  if (pref === "system" || !pref) mainWindow.setTitleBarOverlay(resolveTitleBarOverlay(pref));
+});
 
 // Registered once here (not inside createWindow, which can run again on
 // mac's "activate" -- ipcMain.handle can't be registered twice).

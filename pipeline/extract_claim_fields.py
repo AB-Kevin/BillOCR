@@ -38,7 +38,8 @@ except ImportError:
 import field_validation
 from common import (
     IMAGE_EXTENSIONS, PDF_EXTENSIONS, build_logger, chat_with_thinking_fallback, combine_claim_money,
-    convert_pdf_to_images, load_image_payload, normalize_claim_dates, normalize_claim_phones, wait_until_stable,
+    convert_pdf_to_images, emit_progress, load_image_payload, normalize_claim_dates, normalize_claim_phones,
+    wait_until_stable,
 )
 from claim_schemas import (
     CMS1500_DATE_FIELDS, CMS1500_FIELDS, CMS1500_LINE_DATE_FIELDS, CMS1500_LINE_MONEY_FIELDS,
@@ -118,7 +119,7 @@ def missing_required(fields: dict, required: list) -> list:
 
 def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
                                 primary_fields: dict, field_specs: dict, verification_passes: int,
-                                logger, claim_id: str,
+                                logger, claim_id: str, source_filename: str,
                                 check_pass_temperature: float = DEFAULT_CHECK_PASS_TEMPERATURE,
                                 date_fields: Optional[list] = None,
                                 line_date_fields: Optional[dict] = None,
@@ -154,6 +155,11 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
     "570 713 5432" from another don't register as a disagreement over pure
     punctuation/spacing.
 
+    source_filename: the original image's filename (not claim_id, which is
+    a generated id -- see process_one), reported in the "pass_start"
+    PROGRESS event emitted just before each resample so intake-app's UI can
+    show which file is actually in flight.
+
     Returns {field_key: [{"type": "disagreement", "pass": i, "value": ...,
     "primary_value": ..., "reason": ...}, ...]}, empty if
     verification_passes <= 1 or nothing disagreed. "value"/"primary_value"
@@ -164,6 +170,12 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
     """
     flags: dict = {}
     for i in range(2, verification_passes + 1):
+        # "pass" is a Python keyword, so it can't be written as a literal
+        # pass=i keyword argument here -- **dict unpacking sidesteps that
+        # restriction (the dict's string key doesn't have to be a valid
+        # identifier the way a literal keyword argument would), while still
+        # giving the JSON output the plain "pass" key the JS side expects.
+        emit_progress(**{"event": "pass_start", "file": source_filename, "pass": i, "of": verification_passes, "stage": "verify"})
         try:
             raw_text, _ = chat_with_thinking_fallback(
                 client, model, messages, keep_alive, response_format="json",
@@ -346,6 +358,7 @@ def process_one(path: Path, form_type: str, out_dir: Path, processed_dir: Path, 
         # enough the model just stops generating wherever it happens to be,
         # which surfaces below as a JSON parse error at an arbitrary
         # position rather than a real syntax problem.
+        emit_progress(**{"event": "pass_start", "file": path.name, "pass": 1, "of": verification_passes, "stage": "primary"})
         raw_text, used_thinking_fallback = chat_with_thinking_fallback(
             client, model, messages, keep_alive, response_format="json",
             options={"num_ctx": num_ctx},
@@ -378,6 +391,7 @@ def process_one(path: Path, form_type: str, out_dir: Path, processed_dir: Path, 
 
         flagged = collect_disagreement_flags(
             client, model, messages, keep_alive, fields, spec["fields"], verification_passes, logger, claim_id,
+            path.name,
             check_pass_temperature=check_pass_temperature,
             date_fields=spec["date_fields"], line_date_fields=spec["line_date_fields"],
             money_fields=spec["money_fields"], line_money_fields=spec["line_money_fields"],
@@ -424,9 +438,12 @@ def process_one(path: Path, form_type: str, out_dir: Path, processed_dir: Path, 
                             path.name, claim_id, "; ".join(status_bits))
         else:
             logger.info("%s -> %s : extracted, all required fields present and nothing flagged", path.name, claim_id)
+        emit_progress(event="file_done", file=path.name, claim_id=claim_id, ok=True,
+                      missing=bool(missing), flagged=bool(flagged))
 
     except Exception as exc:  # noqa: BLE001 -- keep the watcher alive no matter what
         logger.exception("Failed on %s: %s", path.name, exc)
+        emit_progress(event="file_done", file=path.name, claim_id=None, ok=False, error=str(exc))
         try:
             shutil.move(str(path), str(errors_dir / path.name))
         except Exception:

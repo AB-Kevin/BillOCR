@@ -6,7 +6,7 @@
 // live log, settings, and a system tray so it can keep running unattended
 // after the window is closed (it only actually quits from the tray menu).
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, nativeTheme } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn, execFile } = require("child_process");
@@ -30,6 +30,7 @@ const DEFAULT_SETTINGS = {
   checkPassTemperature: 0.5, // see extract_claim_fields.py's --check-pass-temperature (DEFAULT_CHECK_PASS_TEMPERATURE)
   ollamaHost: "http://localhost:11434",
   openAtLogin: false,
+  theme: "system", // "system" | "light" | "dark" | "midnight" -- see renderer.js's applyTheme()/setTheme()/resolveTheme()
 };
 
 function readSettings() {
@@ -53,6 +54,12 @@ let quitting = false; // set true only when the tray/menu actually asks to quit
 
 let proc = null; // the running extract_claim_fields.py child, or null
 let procStartedAt = null;
+// The most recent "pass_start"/"file_done" progress event (see PROGRESS
+// lines below), or null while idle/watching -- kept here (not just pushed
+// over IPC) so a renderer that (re)opens or missed the push still gets the
+// current state from pipelineStatus() instead of showing nothing until the
+// next event fires.
+let lastProgress = null;
 
 const WORKSPACE_SUBDIRS = ["incoming_1500", "incoming_ub04", "pending_review"];
 
@@ -92,6 +99,7 @@ autoUpdater.setFeedURL({ provider: "custom", updateProvider: PrefixedGitHubProvi
 // in-app, we hand the user off to that release's GitHub page to grab the
 // new .dmg themselves.
 const IS_MAC = process.platform === "darwin";
+const IS_WINDOWS = process.platform === "win32";
 
 function sendUpdateStatus(status) {
   sendToWindow("update-status", status);
@@ -143,7 +151,7 @@ ipcMain.handle("open-release-page", (_e, tag) => {
 });
 
 function pipelineStatus() {
-  return { running: !!proc, pid: proc ? proc.pid : null, startedAt: procStartedAt };
+  return { running: !!proc, pid: proc ? proc.pid : null, startedAt: procStartedAt, progress: lastProgress };
 }
 
 function startPipeline() {
@@ -175,10 +183,32 @@ function startPipeline() {
 
   proc = spawn(settings.pythonPath, args, { cwd: PIPELINE_DIR });
   procStartedAt = new Date().toISOString();
+  lastProgress = null;
 
+  // extract_claim_fields.py prints one "PROGRESS <json>" line (via
+  // common.emit_progress) right before it starts a model call and again
+  // once a file is fully done, so the UI can show which file/pass is
+  // in flight -- see the Status card's progress widget in renderer.js.
+  // Deliberately a plain sentinel-prefixed line rather than routing through
+  // the logger (see build_logger's asctime/levelname formatting), so it's
+  // simple to pick out of the stream here and doesn't show up as noise in
+  // the log pane (recognized lines are NOT also forwarded as pipeline:log).
+  const PROGRESS_PREFIX = "PROGRESS ";
   const forwardLine = (streamName) => (chunk) => {
     for (const line of chunk.toString("utf-8").split(/\r?\n/)) {
-      if (line.length) sendToWindow("pipeline:log", { stream: streamName, line, ts: Date.now() });
+      if (!line.length) continue;
+      if (streamName === "stdout" && line.startsWith(PROGRESS_PREFIX)) {
+        try {
+          const event = JSON.parse(line.slice(PROGRESS_PREFIX.length));
+          lastProgress = event.event === "file_done" ? null : event;
+          sendToWindow("pipeline:progress", event);
+          continue;
+        } catch {
+          // Malformed PROGRESS line (shouldn't happen) -- fall through and
+          // show it as a normal log line instead of silently dropping it.
+        }
+      }
+      sendToWindow("pipeline:log", { stream: streamName, line, ts: Date.now() });
     }
   };
   proc.stdout.on("data", forwardLine("stdout"));
@@ -188,12 +218,14 @@ function startPipeline() {
     sendToWindow("pipeline:log", { stream: "stderr", line: `Failed to start: ${err.message}`, ts: Date.now() });
     proc = null;
     procStartedAt = null;
+    lastProgress = null;
     sendToWindow("pipeline:exited", { code: null, error: err.message });
   });
 
   proc.on("exit", (code, signal) => {
     proc = null;
     procStartedAt = null;
+    lastProgress = null;
     sendToWindow("pipeline:exited", { code, signal });
   });
 
@@ -213,16 +245,64 @@ function stopPipeline() {
   return pipelineStatus();
 }
 
+// Matches styles.css's --surface-page/--text-body for each theme (see
+// [data-theme="dark"]/[data-theme="midnight"]) -- used for the BrowserWindow's
+// own backgroundColor (painted before any HTML/CSS loads, so a dark/midnight
+// user gets that color from the very first frame instead of a flash of white
+// while renderer.js's init() reads settings and calls applyTheme()) and, on
+// Windows, the native titleBarOverlay's button colors -- see resolveTitleBarOverlay.
+const THEME_BACKGROUNDS = { light: "#FFFFFF", dark: "#1b1c1e", midnight: "#232527" };
+const THEME_OVERLAY_SYMBOLS = { light: "#231f20", dark: "#ececec", midnight: "#e7e9e8" };
+
+// "system" (the default -- see DEFAULT_SETTINGS.theme) has no CSS/background
+// of its own; it resolves to plain light or dark by way of the OS's own
+// preference, mirrored one-to-one (never midnight, which is only ever
+// reached by an explicit choice -- see renderer.js's own resolveTheme()).
+// nativeTheme.shouldUseDarkColors is Electron's synchronous read of that OS
+// preference, usable here in the main process before any window/renderer
+// exists yet, unlike the renderer's window.matchMedia equivalent.
+function resolveThemeName(pref) {
+  return pref === "system" || !pref ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : pref;
+}
+
+function resolveThemeBackground(pref) {
+  return THEME_BACKGROUNDS[resolveThemeName(pref)] || THEME_BACKGROUNDS.light;
+}
+
+// Windows only -- see createWindow()'s IS_WINDOWS branch. height:44 matches
+// the custom titlebar's own height (styles.css's .bm-titlebar) so the native
+// buttons sit centered in it rather than a mismatched OS-default size.
+function resolveTitleBarOverlay(pref) {
+  const theme = resolveThemeName(pref);
+  return { color: THEME_BACKGROUNDS[theme] || THEME_BACKGROUNDS.light, symbolColor: THEME_OVERLAY_SYMBOLS[theme] || THEME_OVERLAY_SYMBOLS.light, height: 44 };
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 900,
     height: 680,
     minWidth: 720,
     minHeight: 520,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: resolveThemeBackground(readSettings().theme),
     autoHideMenuBar: true,
-    frame: false,
     icon: path.join(__dirname, "build", "icon.png"),
+    // Native OS window controls inset into our own custom title bar, on
+    // whichever platform offers a way to do that -- everything else about
+    // the custom bar (the drag region, the title text) is unchanged and
+    // still ours; only the three buttons themselves become the OS's, and
+    // renderer.js's IS_MAC/IS_WINDOWS checks skip drawing its own redundant
+    // ones wherever this applies. macOS: real traffic lights via
+    // hiddenInset. Windows: titleBarOverlay -- real Fluent caption buttons
+    // (Snap Layouts included) themed to match the current app theme, kept
+    // in sync on theme changes by the settings-set handler and the
+    // nativeTheme "updated" listener below. Anywhere else (Linux), neither
+    // API exists, so frame:false + our own drawn buttons stays exactly as
+    // it was before any of this.
+    ...(IS_MAC
+      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 14 } }
+      : IS_WINDOWS
+        ? { titleBarStyle: "hidden", titleBarOverlay: resolveTitleBarOverlay(readSettings().theme) }
+        : { frame: false }),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -245,6 +325,17 @@ function createWindow() {
     }
   });
 }
+
+// Keeps Windows's native titleBarOverlay in sync with OS-level dark/light
+// changes while the app is running (e.g. Windows switching modes at
+// sunset), mirroring the renderer's own matchMedia listener -- but only
+// when the stored preference is "system" (or unset); an explicit
+// Light/Dark/Midnight choice must never be overridden by this.
+nativeTheme.on("updated", () => {
+  if (!IS_WINDOWS || !mainWindow) return;
+  const pref = readSettings().theme;
+  if (pref === "system" || !pref) mainWindow.setTitleBarOverlay(resolveTitleBarOverlay(pref));
+});
 
 function createTray() {
   tray = new Tray(path.join(__dirname, "build", "tray.png"));
@@ -284,6 +375,11 @@ ipcMain.handle("settings-set", (_e, patch) => {
   const next = writeSettings(patch);
   if (typeof patch.openAtLogin === "boolean") {
     app.setLoginItemSettings({ openAtLogin: patch.openAtLogin });
+  }
+  // Keep Windows's native titleBarOverlay buttons matching the theme the
+  // moment it's changed, not just at next launch -- see resolveTitleBarOverlay.
+  if (IS_WINDOWS && typeof patch.theme === "string" && mainWindow) {
+    mainWindow.setTitleBarOverlay(resolveTitleBarOverlay(patch.theme));
   }
   return next;
 });

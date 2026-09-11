@@ -5,6 +5,7 @@ Kept in one place so the three scripts behave consistently.
 """
 
 import io
+import json
 import logging
 import re
 import sys
@@ -324,6 +325,34 @@ def load_image_payload(image_path: Path, max_dim: Optional[int]):
         buf = io.BytesIO()
         resized.save(buf, format="PNG")
         return buf.getvalue()
+
+
+_PROGRESS_PREFIX = "PROGRESS "
+
+
+def emit_progress(**fields: Any) -> None:
+    """
+    Writes one machine-readable progress line to stdout: a recognizable
+    prefix ("PROGRESS ") followed by a single line of compact JSON. Used by
+    extract_claim_fields.py to tell intake-app's UI which file/pass is
+    currently running (see its Status card's progress widget) -- a human
+    watching the app wants to know "what is it doing right now," which the
+    existing per-file/per-pass logger.info/warning calls only announce
+    *after* a pass finishes, not while it's in flight.
+
+    Deliberately NOT routed through the logging module (see build_logger):
+    this is a structured signal for a UI to parse, not a human-readable log
+    line, so it skips the asctime/levelname formatting that would just be
+    noise to strip back out. print()+flush=True (rather than sys.stdout
+    handled by logging's own buffering) keeps ordering predictable relative
+    to the surrounding logger.* calls in the same function, since both
+    write to the same underlying stdout stream intake-app's main.js reads
+    line-by-line from the child process.
+
+    intake-app's main.js recognizes this exact prefix and JSON.parses the
+    rest -- keep the two in sync if this format ever changes.
+    """
+    print(f"{_PROGRESS_PREFIX}{json.dumps(fields)}", flush=True)
 
 
 def build_logger(name: str, log_file: Optional[str]) -> logging.Logger:

@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld("api", {
   openReleasePage: (tag) => ipcRenderer.invoke("open-release-page", tag),
 
   onPipelineLog: subscribe("pipeline:log"),
+  onPipelineProgress: subscribe("pipeline:progress"),
   onPipelineExited: subscribe("pipeline:exited"),
   onWindowState: subscribe("window-state"),
   onUpdateStatus: subscribe("update-status"),

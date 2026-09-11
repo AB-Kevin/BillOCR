@@ -27,12 +27,57 @@ const state = {
   usesBundledPipeline: false, // true in a packaged build -- see main.js's PIPELINE_CLI_PATH
   exports: [], // [{name, size, mtimeMs}, ...] -- built .837/.txt files, see loadExports
   updateStatus: { state: "idle" }, // idle | checking | available | available-manual | downloading | downloaded | not-available | error
+  theme: "system", // "system" | "light" | "dark" | "midnight" -- see applyTheme()/setTheme()/resolveTheme(); persisted in settings.json alongside pythonPath/workspaceFolder
 };
 
 function el(html) {
   const t = document.createElement("template");
   t.innerHTML = html.trim();
   return t.content.firstChild;
+}
+
+// System/light/dark/midnight -- same .bm-theme-toggle widget as BillManager's
+// Options modal, now with the same 4th "System" choice added there too
+// (already reused elsewhere in this file for the org view's Test/Production
+// switch, see renderOrgView). This app has no rail+modal settings surface
+// like BillManager's, so the toggle instead lives in the org view's first
+// settings group, alongside the other app-level (not per-org) preference,
+// Python path -- see renderOrgView. Palette itself is styles.css's
+// :root/[data-theme="dark"]/[data-theme="midnight"] blocks, already present
+// byte-for-byte from the shared design system, just never wired up before.
+const THEME_CHOICES = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "midnight", label: "Midnight" },
+];
+
+// "system" (the default -- see main.js's DEFAULT_SETTINGS.theme) has no CSS
+// palette of its own -- it maps 1:1 onto plain light or dark, matching the
+// OS's own preference, and never resolves to midnight (that's only ever
+// reached by an explicit choice). matchMedia's "prefers-color-scheme: dark"
+// is the renderer-side read of that OS preference -- see main.js's
+// nativeTheme.shouldUseDarkColors for the equivalent used pre-paint, in the
+// main process, before this window (and so this API) exists yet.
+function resolveTheme(pref) {
+  if (pref === "system" || !pref) return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return pref;
+}
+
+// Applied before the first render() (see init()) so the window paints in
+// the right theme instead of flashing light-then-dark. Takes the raw
+// preference (including "system") and resolves it -- state.theme itself
+// keeps the raw preference, so the toggle can still show "System" as the
+// active choice rather than whichever theme it happened to resolve to.
+function applyTheme(pref) {
+  document.documentElement.setAttribute("data-theme", resolveTheme(pref));
+}
+
+async function setTheme(theme) {
+  state.theme = theme;
+  applyTheme(theme);
+  render();
+  state.settings = await window.api.setSettings({ theme });
 }
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -59,20 +104,44 @@ const ICONS = {
 
 // --- Titlebar --------------------------------------------------------------
 
+// True on macOS/Windows, computed once (not per-render): navigator.platform
+// is a plain web API, available in the renderer with no preload/IPC surface
+// of its own even under contextIsolation. IS_MAC is set as a class on <html>
+// immediately so CSS keyed off .is-mac (see styles.css's
+// .is-mac .bm-titlebar-brand) is correct from the very first paint.
+const IS_MAC = /Mac/i.test(navigator.platform);
+const IS_WINDOWS = /Win/i.test(navigator.platform);
+document.documentElement.classList.toggle("is-mac", IS_MAC);
+
+// The window is frameless only where neither OS offers a native alternative
+// (Linux) -- there, the app draws its own chrome and wires the three
+// controls to real window operations over IPC. On macOS, main.js instead
+// uses titleBarStyle:"hiddenInset" (real traffic lights); on Windows,
+// titleBarStyle:"hidden" + titleBarOverlay (real Fluent caption buttons,
+// Snap Layouts included) -- either way the OS insets native buttons into
+// this same custom bar, so the hand-drawn ones would be redundant (and, on
+// Windows, would literally overlap the native ones in the same top-right
+// corner) and are skipped entirely; only the drag region and title text are
+// still ours.
 function renderTitlebar() {
+  const hasNativeButtons = IS_MAC || IS_WINDOWS;
   const bar = el(`
     <div class="bm-titlebar">
       <div class="bm-titlebar-brand"><span class="bm-titlebar-title">BillOCR Review</span></div>
-      <div class="bm-titlebar-controls">
+      ${
+        hasNativeButtons
+          ? ""
+          : `<div class="bm-titlebar-controls">
         <button class="bm-titlebar-btn" id="win-minimize" title="Minimize">${ICONS.minimize}</button>
         <button class="bm-titlebar-btn" id="win-maximize" title="Maximize">${ICONS.maximize}</button>
         <button class="bm-titlebar-btn bm-titlebar-close" id="win-close" title="Close">${ICONS.close}</button>
-      </div>
+      </div>`
+      }
     </div>
   `);
-  bar.querySelector("#win-minimize").addEventListener("click", () => window.api.windowMinimize());
-  bar.querySelector("#win-maximize").addEventListener("click", () => window.api.windowMaximizeToggle());
-  bar.querySelector("#win-close").addEventListener("click", () => window.api.windowClose());
+  bar.querySelector("#win-minimize")?.addEventListener("click", () => window.api.windowMinimize());
+  bar.querySelector("#win-maximize")?.addEventListener("click", () => window.api.windowMaximizeToggle());
+  bar.querySelector("#win-close")?.addEventListener("click", () => window.api.windowClose());
   return bar;
 }
 
@@ -1391,6 +1460,15 @@ function renderOrgView() {
                   }</span>
                 </div>`
           }
+          <div class="bm-field">
+            <span class="bm-field-label">Theme</span>
+            <div class="bm-theme-toggle" role="group" id="theme-toggle">
+              ${THEME_CHOICES.map(
+                (choice) =>
+                  `<button class="bm-theme-toggle-btn ${state.theme === choice.value ? "active" : ""}" data-theme-choice="${choice.value}" type="button">${choice.label}</button>`
+              ).join("")}
+            </div>
+          </div>
         </div>
         <div class="rv-settings-group">
           ${ORG_FIELD_DEFS.filter((f) => f.key.startsWith("submitter"))
@@ -1433,6 +1511,9 @@ function renderOrgView() {
     state.settings = await window.api.setSettings({ pythonPath: e.target.value });
     checkPython(state.settings.pythonPath);
   });
+  main.querySelectorAll("#theme-toggle [data-theme-choice]").forEach((btn) =>
+    btn.addEventListener("click", () => setTheme(btn.dataset.themeChoice))
+  );
   main.querySelector("#usage-test").addEventListener("click", () => {
     state.org.usage_indicator = "T";
     render();
@@ -1544,6 +1625,17 @@ function render() {
 
 (async function init() {
   state.settings = await window.api.getSettings();
+  // Applied before the first render (and before any other await) so the
+  // window paints in the right theme instead of flashing light-then-dark --
+  // same ordering BillManager's own init() uses for the same reason.
+  state.theme = state.settings.theme || "system";
+  applyTheme(state.theme);
+  // Keeps "System" in sync with the OS while the app stays open, not just at
+  // launch -- e.g. macOS switching to Dark Mode at sunset. Guarded so it
+  // never overrides an explicit Light/Dark/Midnight choice.
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (state.theme === "system") applyTheme(state.theme);
+  });
   state.usesBundledPipeline = await window.api.usesBundledPipeline();
   state.schema = await window.api.getSchema();
   if (!state.usesBundledPipeline) {
