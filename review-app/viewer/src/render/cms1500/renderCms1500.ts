@@ -49,7 +49,7 @@ import {
   toPdfRect,
 } from './layout.js';
 import type { FieldBox, Rect, Box24Column } from './layout.js';
-import { safeText, orDash, fitText, formatMoney, rightAlignX, composeName, EM_DASH, embedUnicodeFonts } from '../pdfText.js';
+import { safeText, orDash, fitText, formatMoney, formatPhone, rightAlignX, composeName, EM_DASH, embedUnicodeFonts } from '../pdfText.js';
 
 /**
  * Renders a normalized Claim as a CMS-1500 facsimile PDF, following the
@@ -728,15 +728,17 @@ function getBoxLines(claim: Claim, key: string): string[] {
       return [addressStreetLine(claim.patient.address)];
     case 'patient.cityStateZipPhone':
       return [
-        [cityStateZipLine(claim.patient.address), claim.patient.phone !== '' ? claim.patient.phone : ''].filter((l) => l !== '').join('   ') ||
-          EM_DASH,
+        [cityStateZipLine(claim.patient.address), claim.patient.phone !== '' ? formatPhone(claim.patient.phone) : '']
+          .filter((l) => l !== '')
+          .join('   ') || EM_DASH,
       ];
     case 'insured.addressStreet':
       return [addressStreetLine(claim.insured.address)];
     case 'insured.cityStateZipPhone':
       return [
-        [cityStateZipLine(claim.insured.address), claim.insured.phone !== '' ? claim.insured.phone : ''].filter((l) => l !== '').join('   ') ||
-          EM_DASH,
+        [cityStateZipLine(claim.insured.address), claim.insured.phone !== '' ? formatPhone(claim.insured.phone) : '']
+          .filter((l) => l !== '')
+          .join('   ') || EM_DASH,
       ];
 
     case 'otherInsurance.name':
@@ -818,7 +820,7 @@ function getBoxLines(claim: Claim, key: string): string[] {
       // rather than being dropped.
       const cszPhone = [
         cityStateZipLine(claim.billingProvider.address),
-        claim.billingProvider.phone !== '' ? `PH: ${claim.billingProvider.phone}` : '',
+        claim.billingProvider.phone !== '' ? `PH: ${formatPhone(claim.billingProvider.phone)}` : '',
       ]
         .filter((l) => l !== '')
         .join('   ');

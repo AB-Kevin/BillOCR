@@ -230,3 +230,27 @@ export function composeAddressLine(addr: { line1: string; line2: string; city: s
     .join(', ');
   return [streetParts.join(' '), cityStateZip].filter((p) => p !== '').join(', ');
 }
+
+/**
+ * Formats a phone number for display: "(XXX) XXX-XXXX" for a 10-digit US
+ * number, "1 (XXX) XXX-XXXX" for 11 digits with a leading country code, or
+ * "XXX-XXXX" for a bare 7-digit local number. Mirrors ./text.ts's
+ * formatPhone (that copy is for the browser bundle; this one for the PDF
+ * renderers) -- see its comment for why non-digit characters are always
+ * stripped before reformatting rather than trusted from the source, and why
+ * an unrecognized digit count is returned unchanged instead of mangled.
+ */
+export function formatPhone(raw: string): string {
+  if (raw === '') return raw;
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+  return raw;
+}

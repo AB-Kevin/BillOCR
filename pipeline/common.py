@@ -102,6 +102,55 @@ def _digits_only(raw: Any) -> str:
     return "" if raw is None else _NON_DIGIT_RE.sub("", str(raw))
 
 
+def normalize_phone(value: Any) -> Any:
+    """
+    Strip a phone number the model transcribed "exactly as printed" (see
+    claim_schemas.py) down to plain digits, deterministically.
+
+    CMS-1500/UB-04 print each phone box as "( ___ ) ___-____", with the
+    parentheses drawn as part of the box's own artwork right where the area
+    code goes -- not something the biller wrote. A model told to transcribe
+    exactly what it sees in that box can end up copying those printed
+    parens (and whatever stray spacing happens to fall inside/around them)
+    as if they were part of the number, the same way normalize_date() exists
+    because "transcribe and reformat" is where dates go wrong. Stripping to
+    digits-only here — rather than leaving formatting to a downstream
+    consumer that has to first guess whether a "(" is data or form artwork —
+    also means two verification passes that only differ in that kind of
+    cosmetic punctuation/spacing compare equal instead of registering as a
+    disagreement (see collect_disagreement_flags).
+
+    A leading "1" is dropped when the result is 11 digits (a fully-dialed
+    US number with the country code), leaving a plain 10-digit number.
+    Anything else (too short, too long, empty) is returned as whatever
+    digits were found, unmodified further -- display formatting happens at
+    render time (Review, the 837 viewer), same as normalize_date leaves
+    presentation to its own callers.
+
+    Returns the value unchanged if it's not a string.
+    """
+    if not isinstance(value, str):
+        return value
+    if value.strip() == "":
+        return value
+    digits = _digits_only(value)
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits
+
+
+def normalize_claim_phones(fields: dict, phone_fields: list) -> dict:
+    """
+    Apply normalize_phone() to every known phone field on an extracted
+    claim, in place -- mirrors normalize_claim_dates() above. See
+    claim_schemas.py's *_PHONE_FIELDS for the CMS-1500/UB-04 field lists.
+    """
+    for key in phone_fields:
+        if key in fields:
+            fields[key] = normalize_phone(fields[key])
+    return fields
+
+
 def combine_money(dollars_raw: Any, cents_raw: Any) -> Optional[float]:
     """
     Combine a charge amount that was extracted as two separate raw reads --

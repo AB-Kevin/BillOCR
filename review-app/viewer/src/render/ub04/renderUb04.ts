@@ -13,7 +13,7 @@ import {
   toPdfRect,
 } from './layout.js';
 import type { FieldBox, Rect, GridColumn } from './layout.js';
-import { safeText, orDash, fitText, formatMoney, rightAlignX, composeName, composeAddressLine, EM_DASH, embedUnicodeFonts } from '../pdfText.js';
+import { safeText, orDash, fitText, formatMoney, formatPhone, rightAlignX, composeName, composeAddressLine, EM_DASH, embedUnicodeFonts } from '../pdfText.js';
 
 /**
  * Renders a normalized Claim as a UB-04 (CMS-1450) facsimile PDF, following
@@ -478,7 +478,10 @@ export function getUb04BoxLines(claim: Claim, box: FieldBox): string[] {
     // label only (real UB-04 billing systems commonly leave pay-to
     // defaulted to the billing provider absent a distinct source field).
     case 'provider': {
-      const addrPhone = [addressLine(claim.billingProvider.address), claim.billingProvider.phone !== '' ? `PH: ${claim.billingProvider.phone}` : '']
+      const addrPhone = [
+        addressLine(claim.billingProvider.address),
+        claim.billingProvider.phone !== '' ? `PH: ${formatPhone(claim.billingProvider.phone)}` : '',
+      ]
         .filter((l) => l !== '')
         .join('  ');
       return [orDash(claim.billingProvider.name), addrPhone === '' ? EM_DASH : addrPhone, `NPI: ${orDash(claim.billingProvider.npi)}`];

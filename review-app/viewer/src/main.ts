@@ -26,7 +26,7 @@ import {
   decodeValueCode,
   decodeRevenueCode,
 } from "./model/decode.js";
-import { composeName, composeAddressLine } from "./render/text.js";
+import { composeName, composeAddressLine, formatPhone } from "./render/text.js";
 import type { Claim, Name, Address } from "./model/claim.js";
 
 declare global {
@@ -118,6 +118,9 @@ function val(v: string | number | null | undefined): string {
   if (v === null || v === undefined || v === "") return "—";
   return String(v);
 }
+function phoneText(p: string): string {
+  return p === "" ? "—" : formatPhone(p);
+}
 
 // One label/value row -- optionally with the code's decoded label appended
 // in parentheses, for the many NUBC/X12 code fields (place of service,
@@ -150,7 +153,7 @@ function renderClaim(claim: Claim): string {
       row("Date of birth", val(claim.patient.dob)),
       row("Sex", val(claim.patient.sex)),
       row("Address", addrText(claim.patient.address)),
-      row("Phone", val(claim.patient.phone)),
+      row("Phone", phoneText(claim.patient.phone)),
       row("Rel. to insured", val(claim.patient.relationshipToInsured)),
       row("Account no.", val(claim.patient.accountNumber)),
     ].join("")
@@ -166,7 +169,7 @@ function renderClaim(claim: Claim): string {
       row("Date of birth", val(claim.insured.dob)),
       row("Sex", val(claim.insured.sex)),
       row("Address", addrText(claim.insured.address)),
-      row("Phone", val(claim.insured.phone)),
+      row("Phone", phoneText(claim.insured.phone)),
       row("Employer", val(claim.insured.employer)),
     ].join("")
   );
@@ -185,7 +188,7 @@ function renderClaim(claim: Claim): string {
       row("NPI", val(claim.billingProvider.npi)),
       row("Tax ID", val(claim.billingProvider.taxId), claim.billingProvider.taxIdType || null),
       row("Address", addrText(claim.billingProvider.address)),
-      row("Phone", val(claim.billingProvider.phone)),
+      row("Phone", phoneText(claim.billingProvider.phone)),
       row("Taxonomy", val(claim.billingProvider.taxonomy)),
     ].join("")
   );

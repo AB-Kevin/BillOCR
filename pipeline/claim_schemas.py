@@ -28,7 +28,7 @@ CMS1500_FIELDS = {
     "patient_city": "Box 5 - city",
     "patient_state": "Box 5 - two-letter state",
     "patient_zip": "Box 5 - ZIP code",
-    "patient_phone": "Box 5 - patient's phone number, if present else null",
+    "patient_phone": "Box 5 - patient's phone number, digits only (the parentheses printed around the area code are part of the form, not the number), if present else null",
     "patient_relationship_to_insured": "Box 6 - one of Self, Spouse, Child, Other",
     "employment_related": "Box 10a - true if 'Employment (Current or Previous)' is marked Yes, else false",
     "auto_accident": "Box 10b - true if 'Auto Accident' is marked Yes, else false",
@@ -94,7 +94,7 @@ CMS1500_FIELDS = {
     "billing_provider_city": "Box 33 - city",
     "billing_provider_state": "Box 33 - two-letter state",
     "billing_provider_zip": "Box 33 - ZIP code",
-    "billing_provider_phone": "Box 33 - phone number printed near the provider name/address, if present else null",
+    "billing_provider_phone": "Box 33 - phone number printed near the provider name/address, digits only (the parentheses printed around the area code are part of the form, not the number), if present else null",
     "billing_provider_npi": "Box 33a - billing provider NPI",
     "billing_provider_taxonomy": "Box 33b - taxonomy code, if present else null",
 }
@@ -106,7 +106,7 @@ UB04_FIELDS = {
     "billing_provider_city": "FL1 - city",
     "billing_provider_state": "FL1 - two-letter state",
     "billing_provider_zip": "FL1 - ZIP code",
-    "billing_provider_phone": "FL1 - phone number printed near the provider name/address, if present else null",
+    "billing_provider_phone": "FL1 - phone number printed near the provider name/address, digits only (the parentheses printed around the area code are part of the form, not the number), if present else null",
     "patient_control_number": "FL3a - patient control number",
     "type_of_bill": "FL4 - 3 or 4 digit type of bill code",
     "federal_tax_id": "FL5 - federal tax number, digits only",
@@ -233,6 +233,21 @@ UB04_LINE_MONEY_FIELDS = {
     "revenue_lines": ["total_charge", "non_covered_charge"],
     "value_codes": ["amount"],
 }
+
+# Which fields hold a phone number, for common.normalize_claim_phones() --
+# same "ask the model to transcribe, then normalize deterministically"
+# pattern as *_DATE_FIELDS/*_MONEY_FIELDS above. CMS-1500/UB-04 print each
+# phone box as "( ___ ) ___-____" with the parentheses as part of the box's
+# own artwork right where the digits go, so "transcribe exactly what's
+# printed" can end up copying those printed parens (or whatever stray
+# spacing sits inside them) as if they were part of the entered number.
+# Stripped to digits-only after extraction instead (see normalize_phone),
+# so display formatting (Review, the 837 viewer) has one clean shape to
+# work from, and two verification passes that only disagree on cosmetic
+# spacing/punctuation no longer register as a real disagreement. No
+# per-line phone fields exist on either form's line-item grid.
+CMS1500_PHONE_FIELDS = ["patient_phone", "billing_provider_phone"]
+UB04_PHONE_FIELDS = ["billing_provider_phone"]
 
 # Which fields are booleans, for dump_schema.py/review-app's renderer.js:
 # Review renders these as a toggle rather than a bare text input, and needs
