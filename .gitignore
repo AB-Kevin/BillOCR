@@ -34,3 +34,9 @@ incoming_ub04/
 pending_review/
 approved/
 output_837/
+
+# Sample/reference claim form images (blank + filled) used for one-off
+# code-vs-form audits -- not read by any app code, and the filled samples
+# are formatted just like real PHI even if synthetic, so they get the same
+# "never lands in git" treatment as the claim-data folders above.
+/reference/

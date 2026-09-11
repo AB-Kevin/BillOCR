@@ -236,11 +236,13 @@ def _subscriber_loop(hl_id: str, parent_hl_id: str, fields: dict, org: dict, sbr
     # situation; "ZZ" is a safe-but-vague default, not a guess at your specific payer type.
     claim_filing_code = fields.get("claim_filing_indicator") or org.get("claim_filing_indicator", "ZZ")
     # SBR03/SBR04 = insured's group/policy number and group name -- CMS1500's box 11
-    # (other_insured_group_number) and UB04's new insured_group_number both land in
-    # SBR03 the same way; insured_group_name (UB04 FL61) is CMS1500's counterpart too,
-    # even though CMS1500 doesn't have its own separate group_name field to read one
-    # from (box 11 is number-only there).
-    group_number = fields.get("other_insured_group_number") or fields.get("insured_group_number") or ""
+    # and UB04's FL62 are both named insured_group_number and land in SBR03 the same
+    # way (CMS1500's used to be misleadingly named other_insured_group_number, before
+    # box 9's genuinely separate "other insured" fields existed to claim that name --
+    # see CMS1500_FIELDS); insured_group_name (UB04 FL61) is CMS1500's counterpart
+    # too, even though CMS1500 doesn't have its own separate group_name field to read
+    # one from (box 11 is number-only there).
+    group_number = fields.get("insured_group_number") or ""
     group_name = fields.get("insured_group_name") or ""
     segs.append(_seg("SBR", "P", sbr_relationship, group_number, group_name, "", "", "", "", claim_filing_code))
 
@@ -333,12 +335,23 @@ def build_837p(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
         clm_args.append("")
         clm_args.append(_composite(*cause_codes))
     segs.append(_seg("CLM", *clm_args))
+    # box 20 (outside_lab/outside_lab_charges) is captured for Review but
+    # deliberately not built into the 837: a compliant PS1 (Purchased
+    # Service Information) segment also needs the outside lab's own NPI,
+    # which isn't a field the schema asks for -- guessing one would be
+    # worse than omitting the segment.
     if fields.get("prior_authorization_number"):
         segs.append(_seg("REF", "G1", fields["prior_authorization_number"]))
 
     hi = _diagnosis_hi_segment(fields["diagnosis_codes"], "ABK", "ABF")
     if hi:
         segs.append(hi)
+
+    # NTE*ADD -- Claim Note (box 19, "Additional Claim Information"). Was
+    # extracted and shown in Review but never actually reached the built
+    # 837 -- captured here now so it isn't silently dropped between the two.
+    if fields.get("claim_narrative"):
+        segs.append(_seg("NTE", "ADD", fields["claim_narrative"]))
 
     if fields.get("referring_provider_npi"):
         segs.append(_seg("NM1", "DN", "1", fields.get("referring_provider_name", ""), "", "", "", "",
@@ -370,6 +383,13 @@ def build_837p(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
             segs.append(_seg("DTP", "472", "D8" if date_from == date_to else "RD8", date_range))
         if line.get("rendering_provider_npi"):
             segs.append(_seg("NM1", "82", "1", "", "", "", "", "", "XX", line["rendering_provider_npi"]))
+        # 2420A PRV -- rendering provider taxonomy, box 24I/24J's top half
+        # (see claim_schemas.py's rendering_provider_taxonomy). "PE"
+        # (Performing) is the PRV01 provider-code for a rendering provider,
+        # matching the "BI" (Billing) used for the claim-level 2010AA PRV
+        # above -- same segment shape, different loop/provider code.
+        if line.get("rendering_provider_taxonomy"):
+            segs.append(_seg("PRV", "PE", "PXC", line["rendering_provider_taxonomy"]))
 
     return _envelope("837", "005010X222A1", segs, org, control_numbers, now)
 
@@ -446,9 +466,39 @@ def build_837i(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
         if span_from:
             segs.append(_seg("HI", _composite("BI", span.get("code"), "RD8", f"{span_from}-{span_to}")))
 
+    # 2310A -- Attending provider. NM1 elements 4/5 are last/first name, not
+    # one combined name field -- FL76 prints them in their own separate
+    # LAST/FIRST boxes on the form (unlike e.g. CMS-1500 box 17's single
+    # name line), so the schema asks for them split rather than shoving a
+    # whole "Last, First" string into the last-name element alone.
     if fields.get("attending_provider_npi"):
-        segs.append(_seg("NM1", "71", "1", fields.get("attending_provider_name", ""), "", "", "", "",
+        segs.append(_seg("NM1", "71", "1", fields.get("attending_provider_last_name", ""),
+                          fields.get("attending_provider_first_name", ""), "", "", "",
                           "XX", fields["attending_provider_npi"]))
+    # 2310B -- Operating physician (FL77), same last/first-split shape as attending above.
+    if fields.get("operating_provider_npi"):
+        segs.append(_seg("NM1", "72", "1", fields.get("operating_provider_last_name", ""),
+                          fields.get("operating_provider_first_name", ""), "", "", "",
+                          "XX", fields["operating_provider_npi"]))
+    # 2310C/D/E -- FL78/79 "Other" provider slots. Unlike attending/operating
+    # above, FL78/79 have no fixed role of their own on the form -- each
+    # carries its own small QUAL box that says which role it's actually
+    # filling (e.g. "DN" for a referring provider), so *_qualifier is used
+    # directly as the NM1 entity-identifier code here rather than guessing
+    # one. Skipped entirely (even with a valid NPI) when the qualifier
+    # wasn't read -- an NM1 segment with no entity-identifier code would be
+    # malformed, and a wrong guessed one is worse than omitting the provider
+    # from the built 837 (still visible/editable in Review either way).
+    for prefix in ("other_provider_1_", "other_provider_2_"):
+        qualifier = fields.get(f"{prefix}qualifier")
+        npi = fields.get(f"{prefix}npi")
+        if qualifier and npi:
+            segs.append(_seg("NM1", qualifier, "1", fields.get(f"{prefix}last_name", ""),
+                              fields.get(f"{prefix}first_name", ""), "", "", "",
+                              "XX", npi))
+    # NTE*ADD -- Remarks (FL80), same segment CMS-1500's claim_narrative uses above.
+    if fields.get("remarks"):
+        segs.append(_seg("NTE", "ADD", fields["remarks"]))
 
     # Loop 2400 - Revenue/service lines
     for i, line in enumerate(fields["revenue_lines"], start=1):

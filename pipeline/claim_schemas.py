@@ -30,10 +30,25 @@ CMS1500_FIELDS = {
     "patient_zip": "Box 5 - ZIP code",
     "patient_phone": "Box 5 - patient's phone number, digits only (the parentheses printed around the area code are part of the form, not the number), if present else null",
     "patient_relationship_to_insured": "Box 6 - one of Self, Spouse, Child, Other",
+    # Box 9/9a/9d -- a genuinely separate ("other") insured, for coordination
+    # of benefits when the patient has a second insurance plan -- not to be
+    # confused with box 11's insured_group_number below, which is the
+    # CURRENT (primary) insured's own group number. Captured for Review
+    # visibility only: build_837.py has no COB loop (2320/2330) to put this
+    # in yet, so it's extracted but not (currently) reflected in the built
+    # 837 -- see x12_837.py's SCOPE note.
+    "other_insured_last_name": "Box 9 - other insured's last name, if present else null",
+    "other_insured_first_name": "Box 9 - other insured's first name, if present else null",
+    "other_insured_group_number": "Box 9a - other insured's policy or group number, if present else null",
+    "other_insured_plan_name": "Box 9d - other insurance plan name or program name, if present else null",
     "employment_related": "Box 10a - true if 'Employment (Current or Previous)' is marked Yes, else false",
     "auto_accident": "Box 10b - true if 'Auto Accident' is marked Yes, else false",
     "auto_accident_state": "Box 10b - the two-letter state box next to Auto Accident, if present else null",
-    "other_insured_group_number": "Box 11 - insured's policy/group number",
+    # NOT the same field as other_insured_group_number above -- this is the
+    # CURRENT (primary) insured's own group number, box 11 (previously
+    # misleadingly named "other_insured_group_number" itself, back when box
+    # 9's real "other insured" fields didn't exist yet to claim that name).
+    "insured_group_number": "Box 11 - insured's policy/group number",
     "insured_dob": "Box 11a - insured's date of birth, exactly as printed -- only present if different from the patient (box 3); else null",
     "insured_sex": "Box 11a - insured's sex, M or F -- only present if different from the patient; else null",
     "insured_employer_name": "Box 11b - insured's employer or school name, if present else null",
@@ -44,6 +59,11 @@ CMS1500_FIELDS = {
     "hospitalization_date_from": "Box 18 - hospitalization dates related to current services, from date, exactly as printed, else null",
     "hospitalization_date_to": "Box 18 - hospitalization dates related to current services, through date, exactly as printed, else null",
     "claim_narrative": "Box 19 - additional claim information, if present else null",
+    "outside_lab": "Box 20 - true if 'YES' is marked, false if 'NO' is marked (or neither is marked)",
+    "outside_lab_charges": (
+        "Box 20 - $ CHARGES, printed as dollars and cents in two boxes divided by a line, same as box "
+        "24F -- only meaningful when outside_lab is true; 0 if not present."
+    ),
     "diagnosis_codes": "Box 21 - list of ICD-10 diagnosis codes in order A, B, C... as a JSON array of strings, e.g. ['M54.5', 'R51']",
     "prior_authorization_number": "Box 23, if present, else null",
     "service_lines": (
@@ -51,6 +71,8 @@ CMS1500_FIELDS = {
         "date_from (box 24A, exactly as printed -- do not reformat or reorder it), "
         "date_to (box 24A, same as date_from if one day, exactly as printed), "
         "place_of_service (2-digit code from box 24B), "
+        "emg (box 24C -- true if the small EMG checkbox is marked, else false; rarely filled but always "
+        "worth checking), "
         "cpt_hcpcs_code (box 24D, the procedure code only -- typically 5 characters, e.g. '99213' -- do "
         "not include any modifier codes printed after it), "
         "modifiers (box 24D, printed to the right of the procedure code in the same box, in smaller "
@@ -64,7 +86,14 @@ CMS1500_FIELDS = {
         "only, exactly as printed -- report these two boxes separately, do not add them together or "
         "combine them into one number yourself), "
         "units (box 24G, as an integer), "
-        "rendering_provider_npi (box 24J, the NPI number if present else null)"
+        "rendering_provider_npi (box 24J's BOTTOM half only -- the row printed next to box 24I's own "
+        "pre-printed \"NPI\" label -- the National Provider Identifier, if present else null; some filled-in "
+        "forms print a second qualifier+ID pair in the TOP half of 24I/24J instead (commonly qualifier "
+        "\"ZZ\" with a taxonomy code in 24J's top half) -- that top pair is a different identifier, not the "
+        "NPI, and must never be read into this field even when the bottom half is blank), "
+        "rendering_provider_taxonomy (box 24I/24J's TOP half only, if a qualifier+ID pair is printed there "
+        "-- report just 24J's top ID value, if present else null; this is a separate, optional field from "
+        "rendering_provider_npi above, never the same value as it)"
     ),
     "federal_tax_id": (
         "Box 25 - billing provider's federal tax ID: exactly 9 digits, no dashes. Box 25 has two small "
@@ -121,8 +150,15 @@ UB04_FIELDS = {
     "patient_dob": "FL10 - date of birth, exactly as printed (do not reformat or reorder it)",
     "patient_sex": "FL11 - M or F",
     "admission_date": "FL12 - admission date, exactly as printed, else null if outpatient/not applicable",
+    # FL13/16 -- admission/discharge hour, printed as a 2-digit military-time
+    # hour (00-23, or 99 if unknown) right next to their respective dates.
+    # Timestamps of patient arrival and discharge respectively -- kept as a
+    # pair even though FL16 alone is rarely filled in practice, since one
+    # without the other tells an incomplete story.
+    "admission_hour": "FL13 - admission hour, 2-digit military time (00-23), if present else null",
     "admission_type": "FL14 - 1-digit admission type code, else null",
     "admission_source": "FL15 - 1-digit admission source code, else null",
+    "discharge_hour": "FL16 - discharge hour, 2-digit military time (00-23), if present else null",
     "patient_status": "FL17 - 2-digit patient discharge status code",
     "condition_codes": "FL18-28 - JSON array of condition codes actually present, else empty array",
     "occurrence_codes": (
@@ -174,6 +210,7 @@ UB04_FIELDS = {
     "insured_group_name": "FL61 - insurance group name, if present else null",
     "insured_group_number": "FL62 - insurance group number, if present else null",
     "treatment_authorization_code": "FL63, if present else null",
+    "employer_name": "FL65 - employer name, if present else null",
     "principal_diagnosis_code": "FL67 - principal diagnosis code (ICD-10-CM), no decimal point removed -- keep as printed",
     "principal_diagnosis_poa": "FL67 - present-on-admission indicator for the principal diagnosis (Y, N, U, W, or 1), if present else null",
     "other_diagnosis_codes": "FL67 A-Q - JSON array of secondary diagnosis codes actually present, else empty array",
@@ -182,7 +219,28 @@ UB04_FIELDS = {
     "principal_procedure_date": "FL74 - date of principal procedure, exactly as printed, if present else null",
     "drg_code": "Diagnosis-Related Group code, if present on the form else null",
     "attending_provider_npi": "FL76 - attending provider NPI",
-    "attending_provider_name": "FL76 - attending provider name",
+    "attending_provider_last_name": "FL76 - attending provider last name (printed in its own LAST box, separate from FIRST)",
+    "attending_provider_first_name": "FL76 - attending provider first name (printed in its own FIRST box, separate from LAST), if present else null",
+    "operating_provider_npi": "FL77 - operating physician NPI, if present else null",
+    "operating_provider_last_name": "FL77 - operating physician last name (printed in its own LAST box, separate from FIRST), if present else null",
+    "operating_provider_first_name": "FL77 - operating physician first name (printed in its own FIRST box, separate from LAST), if present else null",
+    # FL78/79 -- two generic "Other" provider slots, each with its own small
+    # QUAL box (easy to miss) that says which role this provider fills --
+    # e.g. "DN" for a referring provider -- rather than the box itself
+    # naming a fixed role the way FL76/77 do. That qualifier is read
+    # verbatim into *_qualifier and used as-is when building the 837 (see
+    # x12_837.py) as the provider's X12 entity-identifier code, so read it
+    # carefully: an empty/illegible qualifier means this provider can't be
+    # placed on the built 837 at all, even with a valid NPI.
+    "other_provider_1_qualifier": "FL78 - the small QUAL code identifying this provider's role (e.g. 'DN' for a referring provider), if present else null",
+    "other_provider_1_npi": "FL78 - NPI, if present else null",
+    "other_provider_1_last_name": "FL78 - last name (printed in its own LAST box, separate from FIRST), if present else null",
+    "other_provider_1_first_name": "FL78 - first name (printed in its own FIRST box, separate from LAST), if present else null",
+    "other_provider_2_qualifier": "FL79 - the small QUAL code identifying this provider's role (e.g. 'DN' for a referring provider), if present else null",
+    "other_provider_2_npi": "FL79 - NPI, if present else null",
+    "other_provider_2_last_name": "FL79 - last name (printed in its own LAST box, separate from FIRST), if present else null",
+    "other_provider_2_first_name": "FL79 - first name (printed in its own FIRST box, separate from LAST), if present else null",
+    "remarks": "FL80 - remarks, if present else null",
 }
 
 # Fields that must be present and non-null for build_837.py to proceed.
@@ -225,7 +283,7 @@ UB04_LINE_DATE_FIELDS = {"revenue_lines": ["service_date"], "occurrence_codes": 
 # them into a single "<base>" field deterministically, after extraction.
 # Top-level fields vs. one-per-line-item fields are tracked separately, same
 # split as the date fields.
-CMS1500_MONEY_FIELDS = ["total_charge"]
+CMS1500_MONEY_FIELDS = ["total_charge", "outside_lab_charges"]
 CMS1500_LINE_MONEY_FIELDS = {"service_lines": ["charge_amount"]}
 
 UB04_MONEY_FIELDS = ["total_charges"]
@@ -257,7 +315,7 @@ UB04_PHONE_FIELDS = ["billing_provider_phone"]
 # BOOLEAN_REVIEW_HINTS there -- so sniffing prose for "true if...else false"
 # the way isArrayField() sniffs for "JSON array" would break the moment
 # that rewording changed, which is exactly what happened once already).
-CMS1500_BOOLEAN_FIELDS = ["ssn_box_checked", "ein_box_checked", "employment_related", "auto_accident", "accept_assignment"]
+CMS1500_BOOLEAN_FIELDS = ["ssn_box_checked", "ein_box_checked", "employment_related", "auto_accident", "accept_assignment", "outside_lab"]
 UB04_BOOLEAN_FIELDS: list = []
 
 # Sub-field schemas for array-of-object fields (service_lines, revenue_lines,
@@ -277,22 +335,29 @@ UB04_BOOLEAN_FIELDS: list = []
 # than guessed from the value, since e.g. revenue_code's leading zeros
 # ("0250") would be silently destroyed by Number("0250") -- see
 # review-app/renderer.js's readFormFields().
+# boolean_subfields: which fields are a real per-line checkbox (currently
+# just service_lines' emg, box 24C) -- rendered as the same real Yes/No
+# toggle top-level boolean fields get (see CMS1500_BOOLEAN_FIELDS above),
+# not a free-text "true"/"false" box.
 CMS1500_SERVICE_LINE_FIELDS = {
     "date_from": "Date from (box 24A)",
     "date_to": "Date to (box 24A)",
     "place_of_service": "Place of service (box 24B)",
+    "emg": "Emergency (box 24C)",
     "cpt_hcpcs_code": "CPT/HCPCS code (box 24D)",
     "modifiers": "Modifiers (box 24D, up to 4)",
     "diagnosis_pointer": "Diagnosis pointer (box 24E)",
     "charge_amount": "Charge amount (box 24F)",
     "units": "Units (box 24G)",
-    "rendering_provider_npi": "Rendering provider NPI (box 24J)",
+    "rendering_provider_npi": "Rendering provider NPI (box 24J, bottom half only)",
+    "rendering_provider_taxonomy": "Rendering provider taxonomy (box 24I/24J, top half, optional)",
 }
 CMS1500_ARRAY_ITEMS = {
     "service_lines": {
         "item_fields": CMS1500_SERVICE_LINE_FIELDS,
         "array_subfields": ["modifiers"],
         "numeric_subfields": ["charge_amount", "units"],
+        "boolean_subfields": ["emg"],
     },
 }
 

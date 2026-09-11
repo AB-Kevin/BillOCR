@@ -384,6 +384,7 @@ function objectArrayItemHtml(spec, item, itemFlags, arrayKey, index) {
   item = item && typeof item === "object" && !Array.isArray(item) ? item : {};
   itemFlags = itemFlags || {};
   const arraySubfields = spec.array_subfields || [];
+  const booleanSubfields = spec.boolean_subfields || [];
   let anyFieldFlagged = false;
   const fieldsHtml = Object.entries(spec.item_fields)
     .map(([subKey, label]) => {
@@ -403,6 +404,28 @@ function objectArrayItemHtml(spec, item, itemFlags, arrayKey, index) {
           <div class="rv-nested-array" data-nested-array data-nested-key="${escapeAttr(subKey)}">
             <div class="rv-nested-rows">${values.map(nestedArrayChipHtml).join("")}</div>
             <button class="rv-nested-add-btn" data-nested-add type="button" title="Add">${ICONS.plus}</button>
+          </div>
+          ${flagHtml}
+        </div>`;
+      }
+      if (booleanSubfields.includes(subKey)) {
+        // Same real-boolean toggle as top-level fields (see isBooleanField/
+        // wireBooleanToggles) -- a per-line checkbox like box 24C's EMG
+        // indicator is genuinely rare (per user feedback, "not usually
+        // filled, but the option is important"), so it still deserves an
+        // actual Yes/No control rather than a free-text "true"/"false" box.
+        const v = item[subKey];
+        const options = BOOLEAN_FIELD_OPTIONS[subKey] || DEFAULT_BOOLEAN_OPTIONS;
+        const buttonsHtml = options
+          .map(
+            (opt) =>
+              `<button class="bm-theme-toggle-btn ${v === opt.value ? "active" : ""}" data-bool-set="${opt.value}" type="button">${escapeHtml(opt.label)}</button>`
+          )
+          .join("");
+        return `<div class="rv-line-item-field ${flagClass}">
+          <span class="rv-line-item-label">${escapeHtml(label)}</span>
+          <div class="bm-theme-toggle" data-item-key="${escapeAttr(subKey)}" data-bool-toggle data-value="${v === true ? "true" : "false"}">
+            ${buttonsHtml}
           </div>
           ${flagHtml}
         </div>`;
@@ -467,6 +490,11 @@ function wireArrayEditors(root, formType) {
         });
       if (kind === "object") wireNestedArrays(row);
     };
+    // Rows already in the initial render's HTML are covered by the
+    // page-wide wireBooleanToggles(main) call this same render already
+    // makes (see renderReviewView) -- only a brand-new row from "+ Add
+    // line" below needs its own boolean-toggle wiring, since it didn't
+    // exist yet when that page-wide pass ran.
     rowsEl.querySelectorAll(":scope > [data-array-row]").forEach(wireRow);
 
     addBtn.addEventListener("click", () => {
@@ -477,6 +505,7 @@ function wireArrayEditors(root, formType) {
       const row = el(rowHtml);
       rowsEl.appendChild(row);
       wireRow(row);
+      if (kind === "object") wireBooleanToggles(row); // per-line boolean subfields (see objectArrayItemHtml) -- same widget as top-level fields
       // A brand-new row has no values yet -- nothing meaningful to save
       // until its inputs are filled in and blurred/paused-on, so this is
       // really just to make missing_required_fields/flags reflect the new
@@ -527,9 +556,10 @@ function readArrayField(formType, key, container) {
       .map((v) => v.trim())
       .filter((v) => v !== "");
   }
-  const spec = objectArrayItemSpec(formType, key) || { item_fields: {}, array_subfields: [], numeric_subfields: [] };
+  const spec = objectArrayItemSpec(formType, key) || { item_fields: {}, array_subfields: [], numeric_subfields: [], boolean_subfields: [] };
   const arraySubfields = spec.array_subfields || [];
   const numericSubfields = spec.numeric_subfields || [];
+  const booleanSubfields = spec.boolean_subfields || [];
   return rows.map((row) => {
     const item = {};
     for (const subKey of Object.keys(spec.item_fields)) {
@@ -537,6 +567,13 @@ function readArrayField(formType, key, container) {
         const nested = row.querySelector(`[data-nested-array][data-nested-key="${subKey}"]`);
         const chips = nested ? Array.from(nested.querySelectorAll("[data-nested-value]")) : [];
         item[subKey] = chips.map((c) => c.value.trim()).filter((v) => v !== "");
+        continue;
+      }
+      if (booleanSubfields.includes(subKey)) {
+        // A real boolean read from data-value, not a text input -- same
+        // reasoning as readFormFields()'s top-level isBooleanField branch.
+        const toggle = row.querySelector(`[data-item-key="${subKey}"][data-bool-toggle]`);
+        item[subKey] = toggle?.dataset.value === "true";
         continue;
       }
       const input = row.querySelector(`[data-item-key="${subKey}"]`);

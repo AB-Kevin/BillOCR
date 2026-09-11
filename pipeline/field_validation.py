@@ -205,6 +205,19 @@ def _validate_cms1500(fields: dict) -> dict:
         rendering_npi = line.get("rendering_provider_npi")
         if rendering_npi and not is_valid_npi(rendering_npi):
             _flag(flags, f"service_lines[{i}].rendering_provider_npi", f"'{rendering_npi}' failed NPI checksum")
+        # Box 24I/24J's TOP half (a qualifier+ID pair, e.g. "ZZ" + taxonomy
+        # code) is a different identifier from the NPI printed in the
+        # BOTTOM half next to 24I's pre-printed "NPI" label -- see
+        # claim_schemas.py's rendering_provider_npi/rendering_provider_taxonomy
+        # descriptions. If what landed in the taxonomy field actually passes
+        # the NPI checksum, that's a strong sign the two halves got swapped
+        # (or the top pair's qualifier wasn't "ZZ" but an NPI look-alike),
+        # not that this genuinely is a taxonomy code -- taxonomy codes are
+        # alphanumeric and never satisfy is_valid_npi on their own.
+        taxonomy = line.get("rendering_provider_taxonomy")
+        if taxonomy and is_valid_npi(taxonomy):
+            _flag(flags, f"service_lines[{i}].rendering_provider_taxonomy",
+                  f"'{taxonomy}' looks like an NPI, not a taxonomy code -- check whether box 24I/24J's top and bottom halves were swapped")
 
     if fields.get("patient_dob") and not is_sane_date(fields["patient_dob"], allow_future=False):
         _flag(flags, "patient_dob", "isn't a plausible date")
@@ -258,6 +271,13 @@ def _validate_ub04(fields: dict) -> dict:
     attending_npi = fields.get("attending_provider_npi")
     if attending_npi and not is_valid_npi(attending_npi):
         _flag(flags, "attending_provider_npi", "failed NPI checksum")
+    operating_npi = fields.get("operating_provider_npi")
+    if operating_npi and not is_valid_npi(operating_npi):
+        _flag(flags, "operating_provider_npi", "failed NPI checksum")
+    for prefix in ("other_provider_1_", "other_provider_2_"):
+        other_npi = fields.get(f"{prefix}npi")
+        if other_npi and not is_valid_npi(other_npi):
+            _flag(flags, f"{prefix}npi", "failed NPI checksum")
 
     for code_key in ("principal_diagnosis_code", "admitting_diagnosis_code"):
         code = fields.get(code_key)
