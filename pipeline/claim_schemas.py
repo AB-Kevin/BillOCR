@@ -17,27 +17,30 @@ from typing import Optional
 
 CMS1500_FIELDS = {
     "form_type": "Always the literal string 'CMS1500'",
+    "insured_id_number": "Box 1a - insured's ID number / member ID",
     "patient_last_name": "Box 2 - patient's last name",
     "patient_first_name": "Box 2 - patient's first name",
     "patient_dob": "Box 3 - patient's date of birth, exactly as printed (do not reformat or reorder it)",
     "patient_sex": "Box 3 - M or F",
+    "insured_last_name": "Box 4 - insured's last name (if different from patient, else same as patient)",
+    "insured_first_name": "Box 4 - insured's first name",
     "patient_address": "Box 5 - street address",
     "patient_city": "Box 5 - city",
     "patient_state": "Box 5 - two-letter state",
     "patient_zip": "Box 5 - ZIP code",
     "patient_phone": "Box 5 - patient's phone number, if present else null",
-    "insured_id_number": "Box 1a - insured's ID number / member ID",
-    "insured_last_name": "Box 4 - insured's last name (if different from patient, else same as patient)",
-    "insured_first_name": "Box 4 - insured's first name",
-    "insured_dob": "Box 11a - insured's date of birth, exactly as printed -- only present if different from the patient (box 3); else null",
-    "insured_sex": "Box 11a - insured's sex, M or F -- only present if different from the patient; else null",
     "patient_relationship_to_insured": "Box 6 - one of Self, Spouse, Child, Other",
-    "other_insured_group_number": "Box 11 - insured's policy/group number",
-    "insured_plan_name": "Box 11c - insurance plan or program name, if present else null",
-    "insured_employer_name": "Box 11b - insured's employer or school name, if present else null",
     "employment_related": "Box 10a - true if 'Employment (Current or Previous)' is marked Yes, else false",
     "auto_accident": "Box 10b - true if 'Auto Accident' is marked Yes, else false",
     "auto_accident_state": "Box 10b - the two-letter state box next to Auto Accident, if present else null",
+    "other_insured_group_number": "Box 11 - insured's policy/group number",
+    "insured_dob": "Box 11a - insured's date of birth, exactly as printed -- only present if different from the patient (box 3); else null",
+    "insured_sex": "Box 11a - insured's sex, M or F -- only present if different from the patient; else null",
+    "insured_employer_name": "Box 11b - insured's employer or school name, if present else null",
+    "insured_plan_name": "Box 11c - insurance plan or program name, if present else null",
+    "referring_provider_name": "Box 17 - referring provider name, else null",
+    "referring_provider_id": "Box 17a - referring provider's other ID (e.g. state license number), if present else null",
+    "referring_provider_npi": "Box 17b - referring provider NPI, else null",
     "hospitalization_date_from": "Box 18 - hospitalization dates related to current services, from date, exactly as printed, else null",
     "hospitalization_date_to": "Box 18 - hospitalization dates related to current services, through date, exactly as printed, else null",
     "claim_narrative": "Box 19 - additional claim information, if present else null",
@@ -75,32 +78,35 @@ CMS1500_FIELDS = {
     "ssn_box_checked": "Box 25 - true if the SSN checkbox (the first of the two) is marked, else false. Report exactly what's marked, even if EIN is also (or isn't) marked -- do not resolve the two into a single answer yourself.",
     "ein_box_checked": "Box 25 - true if the EIN checkbox (the second of the two) is marked, else false. Report exactly what's marked, even if SSN is also (or isn't) marked -- do not resolve the two into a single answer yourself.",
     "patient_account_number": "Box 26",
+    "accept_assignment": "Box 27 - true if 'YES' is marked, false if 'NO' is marked, else false",
     "total_charge": (
         "Box 28 - total charge, printed as dollars and cents in two boxes divided by a line, same as "
         "box 24F (a wider box for whole dollars, a narrower box for cents)."
     ),
-    "accept_assignment": "Box 27 - true if 'YES' is marked, false if 'NO' is marked, else false",
+    "service_facility_name": "Box 32 - service facility location name, if present and different from the billing provider, else null",
+    "service_facility_address": "Box 32 - service facility street address, if present else null",
+    "service_facility_city": "Box 32 - service facility city, if present else null",
+    "service_facility_state": "Box 32 - service facility two-letter state, if present else null",
+    "service_facility_zip": "Box 32 - service facility ZIP code, if present else null",
+    "service_facility_npi": "Box 32a - service facility NPI, if present else null",
     "billing_provider_name": "Box 33 - billing provider or group name",
-    "billing_provider_npi": "Box 33a - billing provider NPI",
     "billing_provider_address": "Box 33 - street address",
     "billing_provider_city": "Box 33 - city",
     "billing_provider_state": "Box 33 - two-letter state",
     "billing_provider_zip": "Box 33 - ZIP code",
     "billing_provider_phone": "Box 33 - phone number printed near the provider name/address, if present else null",
+    "billing_provider_npi": "Box 33a - billing provider NPI",
     "billing_provider_taxonomy": "Box 33b - taxonomy code, if present else null",
-    "referring_provider_name": "Box 17 - referring provider name, else null",
-    "referring_provider_npi": "Box 17b - referring provider NPI, else null",
-    "referring_provider_id": "Box 17a - referring provider's other ID (e.g. state license number), if present else null",
-    "service_facility_name": "Box 32 - service facility location name, if present and different from the billing provider, else null",
-    "service_facility_npi": "Box 32a - service facility NPI, if present else null",
-    "service_facility_address": "Box 32 - service facility street address, if present else null",
-    "service_facility_city": "Box 32 - service facility city, if present else null",
-    "service_facility_state": "Box 32 - service facility two-letter state, if present else null",
-    "service_facility_zip": "Box 32 - service facility ZIP code, if present else null",
 }
 
 UB04_FIELDS = {
     "form_type": "Always the literal string 'UB04'",
+    "billing_provider_name": "FL1 - billing provider/facility name",
+    "billing_provider_address": "FL1 - street address",
+    "billing_provider_city": "FL1 - city",
+    "billing_provider_state": "FL1 - two-letter state",
+    "billing_provider_zip": "FL1 - ZIP code",
+    "billing_provider_phone": "FL1 - phone number printed near the provider name/address, if present else null",
     "patient_control_number": "FL3a - patient control number",
     "type_of_bill": "FL4 - 3 or 4 digit type of bill code",
     "federal_tax_id": "FL5 - federal tax number, digits only",
@@ -119,6 +125,15 @@ UB04_FIELDS = {
     "admission_source": "FL15 - 1-digit admission source code, else null",
     "patient_status": "FL17 - 2-digit patient discharge status code",
     "condition_codes": "FL18-28 - JSON array of condition codes actually present, else empty array",
+    "occurrence_codes": (
+        "FL31-34 - JSON array of {code, date} objects for occurrence codes actually present, else empty "
+        "array. code is the 2-digit occurrence code, date is exactly as printed."
+    ),
+    "occurrence_span_codes": (
+        "FL35-36 - JSON array of {code, date_from, date_to} objects for occurrence span codes actually "
+        "present, else empty array. code is the 2-digit occurrence span code, date_from/date_to are "
+        "exactly as printed."
+    ),
     "value_codes": (
         "FL39-41 - JSON array of {code, amount_dollars, amount_cents} objects for value codes actually "
         "present, else empty array. Each of these boxes prints dollars and cents in two boxes divided by "
@@ -143,26 +158,22 @@ UB04_FIELDS = {
         "report every one of these _dollars/_cents pairs as two separate boxes, do not add them together "
         "or combine them into one number yourself"
     ),
+    "total_charges": (
+        "FL47 total line - grand total charges, printed as dollars and cents in two boxes divided by a "
+        "line, same as revenue_lines' total_charge."
+    ),
+    "billing_provider_npi": "FL56 - billing provider NPI",
+    "insured_last_name": "FL58 - insured's last name",
+    "insured_first_name": "FL58 - insured's first name",
+    "patient_relationship_to_insured": "FL59 - 2-digit patient/insured relationship code",
     # FL50 (payer name) is deliberately not extracted -- x12_837.py's own
     # SCOPE note says this pipeline is single-payer by design, so payer
     # name/ID are org_config.json settings (payer_name/payer_id), the same
     # for every claim, not something worth asking the model to read per claim.
     "insured_id_number": "FL60 - insured's unique ID",
-    "insured_last_name": "FL58 - insured's last name",
-    "insured_first_name": "FL58 - insured's first name",
-    "patient_relationship_to_insured": "FL59 - 2-digit patient/insured relationship code",
     "insured_group_name": "FL61 - insurance group name, if present else null",
     "insured_group_number": "FL62 - insurance group number, if present else null",
     "treatment_authorization_code": "FL63, if present else null",
-    "occurrence_codes": (
-        "FL31-34 - JSON array of {code, date} objects for occurrence codes actually present, else empty "
-        "array. code is the 2-digit occurrence code, date is exactly as printed."
-    ),
-    "occurrence_span_codes": (
-        "FL35-36 - JSON array of {code, date_from, date_to} objects for occurrence span codes actually "
-        "present, else empty array. code is the 2-digit occurrence span code, date_from/date_to are "
-        "exactly as printed."
-    ),
     "principal_diagnosis_code": "FL67 - principal diagnosis code (ICD-10-CM), no decimal point removed -- keep as printed",
     "principal_diagnosis_poa": "FL67 - present-on-admission indicator for the principal diagnosis (Y, N, U, W, or 1), if present else null",
     "other_diagnosis_codes": "FL67 A-Q - JSON array of secondary diagnosis codes actually present, else empty array",
@@ -172,17 +183,6 @@ UB04_FIELDS = {
     "drg_code": "Diagnosis-Related Group code, if present on the form else null",
     "attending_provider_npi": "FL76 - attending provider NPI",
     "attending_provider_name": "FL76 - attending provider name",
-    "billing_provider_name": "FL1 - billing provider/facility name",
-    "billing_provider_address": "FL1 - street address",
-    "billing_provider_city": "FL1 - city",
-    "billing_provider_state": "FL1 - two-letter state",
-    "billing_provider_zip": "FL1 - ZIP code",
-    "billing_provider_phone": "FL1 - phone number printed near the provider name/address, if present else null",
-    "billing_provider_npi": "FL56 - billing provider NPI",
-    "total_charges": (
-        "FL47 total line - grand total charges, printed as dollars and cents in two boxes divided by a "
-        "line, same as revenue_lines' total_charge."
-    ),
 }
 
 # Fields that must be present and non-null for build_837.py to proceed.
