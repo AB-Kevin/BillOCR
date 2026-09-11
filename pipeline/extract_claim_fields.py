@@ -38,14 +38,16 @@ except ImportError:
 import field_validation
 from common import (
     IMAGE_EXTENSIONS, PDF_EXTENSIONS, build_logger, chat_with_thinking_fallback, combine_claim_money,
-    convert_pdf_to_images, emit_progress, load_image_payload, normalize_claim_dates, normalize_claim_phones,
-    wait_until_stable,
+    convert_pdf_to_images, emit_progress, load_image_payload, normalize_claim_dates,
+    normalize_claim_phones, normalize_claim_qualifier_fields, wait_until_stable,
 )
 from claim_schemas import (
     CMS1500_DATE_FIELDS, CMS1500_FIELDS, CMS1500_LINE_DATE_FIELDS, CMS1500_LINE_MONEY_FIELDS,
-    CMS1500_MONEY_FIELDS, CMS1500_PHONE_FIELDS, CMS1500_PROMPT, CMS1500_REQUIRED,
-    UB04_DATE_FIELDS, UB04_FIELDS, UB04_LINE_DATE_FIELDS, UB04_LINE_MONEY_FIELDS, UB04_MONEY_FIELDS,
-    UB04_PHONE_FIELDS, UB04_PROMPT, UB04_REQUIRED,
+    CMS1500_LINE_QUALIFIER_FIELDS, CMS1500_MONEY_FIELDS, CMS1500_PHONE_FIELDS, CMS1500_PROMPT,
+    CMS1500_QUALIFIER_FIELDS, CMS1500_REQUIRED,
+    UB04_DATE_FIELDS, UB04_FIELDS, UB04_LINE_DATE_FIELDS, UB04_LINE_MONEY_FIELDS,
+    UB04_LINE_QUALIFIER_FIELDS, UB04_MONEY_FIELDS, UB04_PHONE_FIELDS, UB04_PROMPT,
+    UB04_QUALIFIER_FIELDS, UB04_REQUIRED,
 )
 
 FORM_SPECS = {
@@ -54,12 +56,14 @@ FORM_SPECS = {
         "date_fields": CMS1500_DATE_FIELDS, "line_date_fields": CMS1500_LINE_DATE_FIELDS,
         "money_fields": CMS1500_MONEY_FIELDS, "line_money_fields": CMS1500_LINE_MONEY_FIELDS,
         "phone_fields": CMS1500_PHONE_FIELDS,
+        "qualifier_fields": CMS1500_QUALIFIER_FIELDS, "line_qualifier_fields": CMS1500_LINE_QUALIFIER_FIELDS,
     },
     "UB04": {
         "fields": UB04_FIELDS, "prompt": UB04_PROMPT, "required": UB04_REQUIRED,
         "date_fields": UB04_DATE_FIELDS, "line_date_fields": UB04_LINE_DATE_FIELDS,
         "money_fields": UB04_MONEY_FIELDS, "line_money_fields": UB04_LINE_MONEY_FIELDS,
         "phone_fields": UB04_PHONE_FIELDS,
+        "qualifier_fields": UB04_QUALIFIER_FIELDS, "line_qualifier_fields": UB04_LINE_QUALIFIER_FIELDS,
     },
 }
 
@@ -126,6 +130,8 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
                                 money_fields: Optional[list] = None,
                                 line_money_fields: Optional[dict] = None,
                                 phone_fields: Optional[list] = None,
+                                qualifier_fields: Optional[dict] = None,
+                                line_qualifier_fields: Optional[dict] = None,
                                 num_ctx: int = DEFAULT_NUM_CTX) -> dict:
     """
     Runs (verification_passes - 1) additional resamples of the same
@@ -185,6 +191,7 @@ def collect_disagreement_flags(client, model: str, messages: list, keep_alive,
             normalize_claim_dates(check_fields, date_fields or [], line_date_fields or {})
             combine_claim_money(check_fields, money_fields or [], line_money_fields or {})
             normalize_claim_phones(check_fields, phone_fields or [])
+            normalize_claim_qualifier_fields(check_fields, qualifier_fields or {}, line_qualifier_fields or {})
         except Exception as exc:  # noqa: BLE001 -- a bad check pass shouldn't break extraction
             logger.warning("claim %s: verification pass %d/%d failed to parse, skipping it: %s",
                             claim_id, i, verification_passes, exc)
@@ -387,6 +394,13 @@ def process_one(path: Path, form_type: str, out_dir: Path, processed_dir: Path, 
         # downstream consumer (Review, the 837 viewer, x12_837.py) to resolve
         # on its own.
         normalize_claim_phones(fields, spec["phone_fields"])
+        # Same reasoning again: box 17's own small qualifier box (DN/DK/DQ)
+        # and box 24I's own qualifier (almost always "ZZ") are part of the
+        # form's printed artwork, not the referring-provider name/taxonomy
+        # code next to them -- strip deterministically rather than trust
+        # the prompt wording alone (see claim_schemas.py's own descriptions
+        # for the real example this was found from).
+        normalize_claim_qualifier_fields(fields, spec["qualifier_fields"], spec["line_qualifier_fields"])
         missing = missing_required(fields, spec["required"])
 
         flagged = collect_disagreement_flags(
@@ -396,6 +410,7 @@ def process_one(path: Path, form_type: str, out_dir: Path, processed_dir: Path, 
             date_fields=spec["date_fields"], line_date_fields=spec["line_date_fields"],
             money_fields=spec["money_fields"], line_money_fields=spec["line_money_fields"],
             phone_fields=spec["phone_fields"],
+            qualifier_fields=spec["qualifier_fields"], line_qualifier_fields=spec["line_qualifier_fields"],
             num_ctx=num_ctx,
         )
         for key, entries in field_validation.validate_fields(form_type, fields).items():

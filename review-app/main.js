@@ -71,6 +71,19 @@ let cachedSchema = null; // {CMS1500: {fields, required}, UB04: {...}} | null
 // see createWindow()'s "close" handler and the app-flushed-before-close
 // handler further down.
 let closeFlushed = false;
+// True once Cmd+Q/"Quit" has actually been requested (set by the app's own
+// "before-quit", which always fires before the window's "close" below) --
+// distinguishes that from a plain window-close (Cmd+W, the titlebar close
+// button), which also runs through the same "close" handler below but
+// should only close this one window, not the whole app. Without this, the
+// retry after the autosave flush always just re-closed the window (see
+// below) regardless of which one had actually been asked for -- on macOS
+// that meant Cmd+Q silently degraded into Cmd+W: the window closed, the app
+// stayed running (window-all-closed's "don't quit on mac" convention, a few
+// lines down, doesn't apply -- Cmd+Q is supposed to override it, but never
+// got the chance to since the app was never told this close traced back to
+// an actual quit request).
+let quitRequested = false;
 
 // --- Auto-update -----------------------------------------------------------
 // Driven entirely from the renderer's "Check for updates" control — never
@@ -325,6 +338,7 @@ function claimSummary(record) {
     claim_id: record.claim_id,
     form_type: record.form_type,
     extracted_at: record.extracted_at,
+    approved_at: record.approved_at || null, // set by claims-approve; absent for a still-pending claim
     missing_required_fields: record.missing_required_fields || [],
     flagged_count: Object.keys(record.flagged_fields || {}).length,
     used_thinking_fallback: !!record.used_thinking_fallback,
@@ -461,6 +475,57 @@ ipcMain.handle("claims-get", (_e, claimId) => {
     // producing a URL Chromium can't resolve to any file at all, hence the
     // broken-image icon. pathToFileURL() handles drive letters, UNC paths,
     // and separators correctly on every platform.
+    imageUrl: resolvedImagePath ? pathToFileURL(resolvedImagePath).href : null,
+  };
+});
+
+// Read-only counterpart to claims-list-pending/claims-get, over approved/
+// instead of pending_review/ -- the only way today to see what a claim's
+// fields actually looked like at the moment it was approved (moveClaimFiles
+// relocates the exact JSON saveClaim() wrote from the reviewer's on-screen
+// fields into approved/ untouched; nothing downstream rewrites it -- see
+// build_one.py, which only reads it). Exists because there was previously
+// no way to check this at all short of opening approved/<claim_id>.json by
+// hand in a text editor.
+ipcMain.handle("claims-list-approved", () => {
+  const settings = readSettings();
+  if (!settings.workspaceFolder) return [];
+  const p = paths(settings.workspaceFolder);
+  let files;
+  try {
+    files = fs.readdirSync(p.approved).filter((f) => f.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  const summaries = [];
+  for (const file of files) {
+    try {
+      summaries.push(claimSummary(readClaimRecord(path.join(p.approved, file))));
+    } catch (err) {
+      summaries.push({ claim_id: file.replace(/\.json$/, ""), form_type: "?", error: `Could not read: ${err.message}` });
+    }
+  }
+  // Newest-approved-first -- the opposite order from the pending queue
+  // (oldest-extracted-first, so the queue works front-to-back), since here
+  // "what did I just approve" is the far more common question than "what
+  // did I approve first." Sorts by approved_at, not extracted_at (when
+  // Intake originally OCR'd it, which can be hours/days earlier than
+  // approval) -- a claim approved before approved_at existed falls back to
+  // extracted_at so it still sorts somewhere sane rather than first/last.
+  summaries.sort((a, b) => String(b.approved_at || b.extracted_at).localeCompare(String(a.approved_at || a.extracted_at)));
+  return summaries;
+});
+
+ipcMain.handle("claims-get-approved", (_e, claimId) => {
+  const settings = readSettings();
+  const p = paths(settings.workspaceFolder);
+  const jsonPath = path.join(p.approved, `${claimId}.json`);
+  const record = readClaimRecord(jsonPath);
+  const imagePath = record.source_image ? path.join(p.approved, record.source_image) : null;
+  const resolvedImagePath = imagePath && fs.existsSync(imagePath) ? imagePath : null;
+  return {
+    record,
+    imagePath: resolvedImagePath,
     imageUrl: resolvedImagePath ? pathToFileURL(resolvedImagePath).href : null,
   };
 });
@@ -640,6 +705,15 @@ ipcMain.handle("claims-approve", (_e, { claimId, fields }) => {
           resolve({ ok: false, missingFields, message: missingFields ? text.replace(/^MISSING_FIELDS:\s*/, "") : text });
           return;
         }
+        // Stamped here (once the build has actually succeeded), not in
+        // saveClaim() -- a plain "Save" while still reviewing shouldn't
+        // claim an approval time. This is what the "Approved" view (see
+        // claims-list-approved) sorts by and displays, since extracted_at
+        // (when Intake originally OCR'd it) can be hours/days earlier than
+        // when a person actually approved it.
+        const record = readClaimRecord(jsonPath);
+        record.approved_at = new Date().toISOString();
+        fs.writeFileSync(jsonPath, JSON.stringify(record, null, 2), "utf-8");
         moveClaimFiles(settings.workspaceFolder, claimId, "approved");
         resolve({ ok: true, outputPath: stdout.trim() });
       }
@@ -765,10 +839,22 @@ function createWindow() {
     setTimeout(() => {
       if (!closeFlushed) {
         closeFlushed = true;
-        mainWindow && mainWindow.close();
+        finishClose();
       }
     }, 3000);
   });
+}
+
+// Resumes whichever close was actually requested, now that the flush has
+// happened (closeFlushed is true) -- app.quit() for a real quit (Cmd+Q,
+// "Quit" from the dock/menu), or just mainWindow.close() for a plain
+// window-close (Cmd+W, the titlebar close button). Calling mainWindow.close()
+// unconditionally here was the bug: a vetoed app.quit() never resumes on its
+// own just because the window later closes on its own terms -- see
+// quitRequested's own comment above.
+function finishClose() {
+  if (quitRequested) app.quit();
+  else if (mainWindow) mainWindow.close();
 }
 
 // Keeps Windows's native titleBarOverlay in sync with OS-level dark/light
@@ -786,7 +872,14 @@ nativeTheme.on("updated", () => {
 // mac's "activate" -- ipcMain.handle can't be registered twice).
 ipcMain.handle("app-flushed-before-close", () => {
   closeFlushed = true;
-  if (mainWindow) mainWindow.close();
+  finishClose();
+});
+
+// Always fires before any window's "close" (see quitRequested's own comment)
+// -- Cmd+Q, "Quit BillOCR Review" from the dock, etc. all route through
+// app.quit() first, which emits this before it ever touches a window.
+app.on("before-quit", () => {
+  quitRequested = true;
 });
 
 app.whenReady().then(() => {

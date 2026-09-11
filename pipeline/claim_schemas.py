@@ -53,7 +53,13 @@ CMS1500_FIELDS = {
     "insured_sex": "Box 11a - insured's sex, M or F -- only present if different from the patient; else null",
     "insured_employer_name": "Box 11b - insured's employer or school name, if present else null",
     "insured_plan_name": "Box 11c - insurance plan or program name, if present else null",
-    "referring_provider_name": "Box 17 - referring provider name, else null",
+    "referring_provider_last_name": (
+        "Box 17 - referring provider's last name, else null. Box 17 has its own small qualifier box "
+        "printed immediately to its left (codes like 'DN' Referring Provider, 'DK' Ordering, 'DQ' "
+        "Supervising) -- that qualifier is part of the form, not the name; report only the name itself, "
+        "e.g. a box reading 'DN Aurora Bell' means last name 'Bell', not 'DN Aurora' or 'DN Bell'."
+    ),
+    "referring_provider_first_name": "Box 17 - referring provider's first name, if present else null (see referring_provider_last_name's note on the qualifier box)",
     "referring_provider_id": "Box 17a - referring provider's other ID (e.g. state license number), if present else null",
     "referring_provider_npi": "Box 17b - referring provider NPI, else null",
     "hospitalization_date_from": "Box 18 - hospitalization dates related to current services, from date, exactly as printed, else null",
@@ -92,8 +98,10 @@ CMS1500_FIELDS = {
         "\"ZZ\" with a taxonomy code in 24J's top half) -- that top pair is a different identifier, not the "
         "NPI, and must never be read into this field even when the bottom half is blank), "
         "rendering_provider_taxonomy (box 24I/24J's TOP half only, if a qualifier+ID pair is printed there "
-        "-- report just 24J's top ID value, if present else null; this is a separate, optional field from "
-        "rendering_provider_npi above, never the same value as it)"
+        "-- report ONLY 24J's top ID value, if present else null; 24I's own qualifier letters (almost "
+        "always \"ZZ\") are part of the form, not the code, and must NOT be included -- a top half "
+        "reading \"ZZ 207Q00000X\" means '207Q00000X', not 'ZZ207Q00000X'; this is a separate, optional "
+        "field from rendering_provider_npi above, never the same value as it)"
     ),
     "federal_tax_id": (
         "Box 25 - billing provider's federal tax ID: exactly 9 digits, no dashes. Box 25 has two small "
@@ -307,16 +315,47 @@ UB04_LINE_MONEY_FIELDS = {
 CMS1500_PHONE_FIELDS = ["patient_phone", "billing_provider_phone"]
 UB04_PHONE_FIELDS = ["billing_provider_phone"]
 
+# Which fields are at risk of a small form-printed qualifier CODE bleeding
+# into the transcribed value, for common.normalize_claim_qualifier_fields()
+# -- same "ask nicely, then normalize deterministically" pattern as
+# *_PHONE_FIELDS above, confirmed for real on two boxes: box 17's own
+# qualifier box (DN/DK/DQ, printed immediately next to the referring
+# provider's name -- see referring_provider_last_name's description) and
+# box 24I's own qualifier (almost always "ZZ", printed directly above
+# 24J's top-half taxonomy code -- see service_lines' rendering_provider_taxonomy
+# description). Top-level fields vs. one-per-line-item fields are tracked
+# separately, same split as *_DATE_FIELDS/*_MONEY_FIELDS.
+CMS1500_QUALIFIER_FIELDS = {
+    "referring_provider_last_name": ["DN", "DK", "DQ"],
+    "referring_provider_first_name": ["DN", "DK", "DQ"],
+}
+CMS1500_LINE_QUALIFIER_FIELDS = {"service_lines": {"rendering_provider_taxonomy": ["ZZ"]}}
+UB04_QUALIFIER_FIELDS: dict = {}
+UB04_LINE_QUALIFIER_FIELDS: dict = {}
+
 # Which fields are booleans, for dump_schema.py/review-app's renderer.js:
 # Review renders these as a toggle rather than a bare text input, and needs
 # to know which fields those are without depending on the wording of each
 # field's description (dump_schema.py rewrites boolean descriptions for
 # Review into something that describes the form, not JSON true/false -- see
 # BOOLEAN_REVIEW_HINTS there -- so sniffing prose for "true if...else false"
-# the way isArrayField() sniffs for "JSON array" would break the moment
-# that rewording changed, which is exactly what happened once already).
+# the way review-app's renderer.js used to sniff "JSON array" for array
+# fields would break the moment that rewording changed, which is exactly
+# what happened once already for booleans, and happened again for arrays
+# the day ARRAY_REVIEW_HINTS (see dump_schema.py) first shipped -- see
+# *_STRING_ARRAY_FIELDS below, added for the same reason as this list).
 CMS1500_BOOLEAN_FIELDS = ["ssn_box_checked", "ein_box_checked", "employment_related", "auto_accident", "accept_assignment", "outside_lab"]
 UB04_BOOLEAN_FIELDS: list = []
+
+# Which top-level fields are a plain string array (as opposed to an
+# object-array/line-item field -- see *_ARRAY_ITEMS below, which already
+# gives dump_schema.py/renderer.js an explicit, description-independent way
+# to know THOSE), for the same "don't sniff the description" reason as
+# *_BOOLEAN_FIELDS above. review-app's renderer.js combines this with
+# *_ARRAY_ITEMS' own keys into one "which fields render as an array editor
+# at all" list -- see its own isArrayField().
+CMS1500_STRING_ARRAY_FIELDS = ["diagnosis_codes"]
+UB04_STRING_ARRAY_FIELDS = ["condition_codes", "other_diagnosis_codes"]
 
 # Sub-field schemas for array-of-object fields (service_lines, revenue_lines,
 # value_codes), for dump_schema.py/review-app's renderer.js: Review renders

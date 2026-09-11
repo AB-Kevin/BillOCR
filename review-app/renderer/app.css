@@ -170,6 +170,19 @@
 .rv-line-item-field.flagged .bm-input { border-color: #a67c00; background: #fffbea; }
 .rv-line-item-flag-reason { font-size: 11px; color: #8a6415; line-height: 1.3; }
 
+/* Approved view (see renderApprovedDetailView) -- the same field/line-item
+   rhythm as the editable review form above, but plain text instead of
+   inputs: .rv-approved-value stands in for .bm-input, .rv-approved-line for
+   .rv-line-item, .rv-approved-subfield-label for .rv-line-item-label. */
+.rv-approved-value { font-size: 13px; color: var(--text-body); word-break: break-word; }
+.rv-approved-line {
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-control); background: var(--surface-card);
+  padding: var(--space-3); margin-bottom: var(--space-2);
+}
+.rv-approved-line-head { font-size: 11px; font-weight: 600; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); margin-bottom: var(--space-2); }
+.rv-approved-subfield { font-size: 12.5px; color: var(--text-body); padding: 2px 0; }
+.rv-approved-subfield-label { font-size: 10.5px; font-weight: 600; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-caption); margin-right: 6px; }
+
 /* A line item's own array sub-field (currently just service_lines'
    modifiers) -- small removable chips instead of a whole nested row/add UI,
    since there are at most 4 and each is a short code. */

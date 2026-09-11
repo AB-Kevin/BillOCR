@@ -152,6 +152,65 @@ def normalize_claim_phones(fields: dict, phone_fields: list) -> dict:
     return fields
 
 
+def strip_qualifier_prefix(value: Any, qualifiers: list) -> Any:
+    """
+    Strips a small form-printed qualifier CODE the model sometimes
+    transcribes as if it were part of the actual value next to it, because
+    the qualifier is printed immediately adjacent to (often directly above
+    or to the left of) the box the real data goes in -- the same root cause
+    as normalize_phone()'s printed-parentheses problem, confirmed for real
+    on two different boxes: box 17's small qualifier box (DN=Referring
+    Provider, DK=Ordering, DQ=Supervising -- printed right next to the name
+    line, see CMS1500_QUALIFIER_FIELDS) and box 24I's own qualifier (almost
+    always "ZZ" for a taxonomy code, printed directly above 24J's top-half
+    ID, see CMS1500_LINE_QUALIFIER_FIELDS). Case-insensitive; tolerates the
+    qualifier being followed by a space, dash, colon, or nothing at all
+    before the real value.
+
+    Only strips when something is left over afterward -- a value that's
+    JUST the qualifier itself (unlikely, but e.g. a garbled read) is left
+    alone rather than reduced to an empty string, on the theory that a
+    wrong-but-present value is easier for a reviewer to spot and fix than
+    one silently turned blank.
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return value
+    upper = text.upper()
+    for q in qualifiers:
+        if upper.startswith(q.upper()):
+            rest = text[len(q):].lstrip(" \t-:")
+            if rest:
+                return rest
+    return value
+
+
+def normalize_claim_qualifier_fields(fields: dict, qualifier_fields: dict, line_qualifier_fields: dict) -> dict:
+    """
+    Apply strip_qualifier_prefix() to every known at-risk field on an
+    extracted claim, in place -- mirrors normalize_claim_dates() above.
+    qualifier_fields: top-level fields, {field_key: [qualifiers]}.
+    line_qualifier_fields: one-per-line-item fields, {list_field_key:
+    {field_key: [qualifiers]}} (e.g. {"service_lines":
+    {"rendering_provider_taxonomy": ["ZZ"]}}). See claim_schemas.py's
+    *_QUALIFIER_FIELDS/*_LINE_QUALIFIER_FIELDS for the CMS-1500/UB-04 lists.
+    """
+    for key, qualifiers in (qualifier_fields or {}).items():
+        if key in fields:
+            fields[key] = strip_qualifier_prefix(fields[key], qualifiers)
+    for lines_key, sub_map in (line_qualifier_fields or {}).items():
+        lines = fields.get(lines_key)
+        if isinstance(lines, list):
+            for line in lines:
+                if isinstance(line, dict):
+                    for sub_key, qualifiers in sub_map.items():
+                        if sub_key in line:
+                            line[sub_key] = strip_qualifier_prefix(line[sub_key], qualifiers)
+    return fields
+
+
 def combine_money(dollars_raw: Any, cents_raw: Any) -> Optional[float]:
     """
     Combine a charge amount that was extracted as two separate raw reads --

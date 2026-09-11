@@ -32,6 +32,11 @@ NPI_RE = re.compile(r"\D")
 # has to accept both.
 ICD10_RE = re.compile(r"^[A-Z][0-9]{2}(\.?[0-9A-Z]{1,4})?$")
 CPT_HCPCS_RE = re.compile(r"^(\d{5}|[A-Z]\d{4})$")
+# Box 24E prints one or more of the letters A-L (box 21's own diagnosis
+# slots), comma-separated when there's more than one (e.g. "A" or "A,B") --
+# tolerates a missing comma/space too ("AB"), matching how loosely
+# claim_schemas.py itself asks for it ("e.g. 'A' or 'A,B'").
+DX_POINTER_RE = re.compile(r"^[A-L](\s*,?\s*[A-L])*$")
 ZIP_RE = re.compile(r"^\d{5}(-?\d{4})?$")
 TAX_ID_RE = re.compile(r"^\d{9}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -199,6 +204,19 @@ def _validate_cms1500(fields: dict) -> dict:
         code = line.get("cpt_hcpcs_code")
         if code and not CPT_HCPCS_RE.match(str(code)):
             _flag(flags, f"service_lines[{i}].cpt_hcpcs_code", f"'{code}' doesn't look like a valid CPT/HCPCS code shape")
+        # A missing/blank box 24E used to fail silently all the way through
+        # to the built 837: x12_837.py's SV1 segment quietly defaulted an
+        # absent line -- but not an explicitly-null one, which is what
+        # Review's line-item editor always writes for a blank field (see
+        # readArrayField) -- to a placeholder pointer, with nothing here to
+        # ever catch it first. Flagged the same way a bad CPT/HCPCS shape is,
+        # so a reviewer sees it before approving rather than the built claim
+        # silently pointing at the wrong (or no) diagnosis.
+        dx_pointer = line.get("diagnosis_pointer")
+        if not dx_pointer:
+            _flag(flags, f"service_lines[{i}].diagnosis_pointer", "no diagnosis pointer (box 24E) -- which diagnosis does this line apply to?")
+        elif not DX_POINTER_RE.match(str(dx_pointer).strip()):
+            _flag(flags, f"service_lines[{i}].diagnosis_pointer", f"'{dx_pointer}' doesn't look like a valid diagnosis pointer (expected letters A-L, e.g. 'A' or 'A,B')")
         for date_key in ("date_from", "date_to"):
             if line.get(date_key) and not is_sane_date(line.get(date_key)):
                 _flag(flags, f"service_lines[{i}].{date_key}", f"'{line.get(date_key)}' isn't a plausible date")

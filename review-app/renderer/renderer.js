@@ -11,11 +11,17 @@ const MIN_FORM_PANE_WIDTH = 280;
 const state = {
   settings: null,
   schema: null, // {CMS1500:{fields,required}, UB04:{...}} | null
-  view: "queue", // "queue" | "review" | "org" | "about"
+  view: "queue", // "queue" | "review" | "org" | "about" | "exports" | "approved" | "approved-detail"
   pendingList: [],
   counts: { pending: 0, approved: 0, output: 0 },
   selectedIndex: -1,
   currentClaim: null, // {record, imagePath, imageUrl} -- imagePath is a native OS path (openFolder), imageUrl a real file:// URL for <img src> (see main.js's claims-get)
+  // Read-only counterpart to pendingList/currentClaim, for the "approved"
+  // view (see renderApprovedListView/renderApprovedDetailView) -- the only
+  // way to see what a claim's fields looked like at the moment it was
+  // approved, short of opening approved/<claim_id>.json by hand.
+  approvedList: [],
+  currentApprovedClaim: null, // {record, imagePath, imageUrl} | null
   reviewError: null,
   saveStatus: null,
   busy: false,
@@ -252,7 +258,9 @@ function renderRail() {
         </div>
       </div>
       <div class="bm-rail-footer">
-        <div class="bm-rail-footer-row"><span>Approved</span><span>${state.counts.approved}</span></div>
+        <div class="bm-rail-footer-row bm-rail-footer-link ${state.view === "approved" || state.view === "approved-detail" ? "active" : ""}" data-view="approved" title="See what a claim's fields looked like when it was approved">
+          <span>Approved</span><span>${state.counts.approved}</span>
+        </div>
         <div class="bm-rail-footer-row bm-rail-footer-link ${state.view === "exports" ? "active" : ""}" data-view="exports" title="View built .837 files">
           <span>Built .txt</span><span>${state.counts.output}</span>
         </div>
@@ -274,6 +282,7 @@ async function switchView(view) {
   if (view === "queue") await loadQueue();
   if (view === "org") await loadOrg();
   if (view === "exports") await loadExports();
+  if (view === "approved") await loadApproved();
   render();
 }
 
@@ -369,10 +378,186 @@ async function loadQueue() {
   state.counts = await window.api.getClaimCounts();
 }
 
+// --- Approved view (read-only) ---------------------------------------------
+// The only way to see what a claim's fields actually looked like at the
+// moment it was approved -- approved/<claim_id>.json is an exact, untouched
+// copy of what saveClaim() wrote from the reviewer's on-screen fields right
+// before building (see main.js's claims-approve/moveClaimFiles), but
+// nothing in this app surfaced it anywhere before this. Deliberately a
+// separate, simpler set of render functions rather than reusing
+// renderReviewView's editable form -- there's nothing to edit, save,
+// autosave, dismiss a flag on, or add/remove a line from here, and forcing
+// all of that machinery into a disabled state would be a lot of surface
+// area for what's really just a read-only field dump next to the image.
+
+async function loadApproved() {
+  if (!state.settings?.workspaceFolder) {
+    state.approvedList = [];
+    return;
+  }
+  state.approvedList = await window.api.listApprovedClaims();
+}
+
+function renderApprovedListView() {
+  if (!state.settings?.workspaceFolder) return renderNoWorkspace();
+  if (state.approvedList.length === 0) {
+    return el(`
+      <div class="rv-main">
+        <div class="rv-main-header"><div class="rv-main-title">Approved</div></div>
+        <div class="rv-empty">
+          <div class="rv-empty-title">Nothing approved yet</div>
+          <div>Claims you approve show up here, exactly as they looked the moment you approved them.</div>
+        </div>
+      </div>
+    `);
+  }
+  const main = el(`
+    <div class="rv-main">
+      <div class="rv-main-header">
+        <div class="rv-main-title">Approved</div>
+        <div class="rv-main-sub">${state.approvedList.length} claim${state.approvedList.length === 1 ? "" : "s"}</div>
+      </div>
+      <div class="rv-queue-list">
+        ${state.approvedList
+          .map(
+            (c, i) => `
+          <div class="rv-claim-row" data-index="${i}">
+            <div class="rv-claim-name">${escapeHtml(c.patient_name || c.claim_id)}</div>
+            <div class="rv-claim-meta">${escapeHtml(c.form_type)}</div>
+            <div class="rv-claim-charge">${c.total_charge != null ? "$" + c.total_charge : "—"}</div>
+            <div class="rv-claim-badges">${claimBadges(c)}</div>
+            <div class="rv-claim-meta">${escapeHtml(c.approved_at || c.extracted_at || "")}</div>
+          </div>`
+          )
+          .join("")}
+      </div>
+    </div>
+  `);
+  main.querySelectorAll("[data-index]").forEach((row) => {
+    row.addEventListener("click", () => openApprovedClaim(Number(row.getAttribute("data-index"))));
+  });
+  return main;
+}
+
+async function openApprovedClaim(index) {
+  const summary = state.approvedList[index];
+  if (!summary) return;
+  const result = await window.api.getApprovedClaim(summary.claim_id);
+  state.currentApprovedClaim = result;
+  state.selectedIndex = index;
+  state.view = "approved-detail";
+  render();
+}
+
+// Turns one field's raw JSON value into a plain, read-only display string --
+// no inputs, no editing. Object-array (line-item) fields are expanded one
+// line per row using their own *_ARRAY_ITEMS sub-field labels -- the same
+// labels the editable line-item editor uses (see objectArrayItemHtml) -- so
+// a service_lines entry reads the same way here as it did on the review
+// screen that approved it, just as plain text instead of inputs.
+function formatApprovedValue(formType, key, value) {
+  if (value == null || value === "") return "—";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "—";
+    const spec = objectArrayItemSpec(formType, key);
+    if (!spec) return escapeHtml(value.join(", "));
+    return value
+      .map((item, i) => {
+        const subfieldsHtml = Object.entries(spec.item_fields)
+          .map(([subKey, label]) => {
+            const v = item?.[subKey];
+            const shown = Array.isArray(v) ? v.join(", ") || "—" : v == null || v === "" ? "—" : String(v);
+            return `<div class="rv-approved-subfield"><span class="rv-approved-subfield-label">${escapeHtml(label)}</span> ${escapeHtml(shown)}</div>`;
+          })
+          .join("");
+        return `<div class="rv-approved-line"><div class="rv-approved-line-head">Line ${i + 1}</div>${subfieldsHtml}</div>`;
+      })
+      .join("");
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return escapeHtml(String(value));
+}
+
+function renderApprovedDetailView() {
+  const { record, imagePath, imageUrl } = state.currentApprovedClaim;
+  const fieldSpecs = state.schema?.[record.form_type]?.fields || {};
+  const fields = record.fields || {};
+  const flagged = record.flagged_fields || {};
+  const missing = new Set(record.missing_required_fields || []);
+
+  const rows = Object.keys(fieldSpecs)
+    .filter((key) => key !== "form_type")
+    .map((key) => {
+      const desc = fieldSpecs[key];
+      const flagEntries = flagged[key] || [];
+      return `
+        <div class="bm-field rv-field ${missing.has(key) ? "missing" : ""} ${flagEntries.length ? "flagged" : ""}">
+          <span class="bm-field-label">${escapeHtml(key)}${missing.has(key) ? " — was missing at approval" : ""}</span>
+          <div class="rv-approved-value">${formatApprovedValue(record.form_type, key, fields[key])}</div>
+          <span class="rv-field-hint">${escapeHtml(desc)}</span>
+          ${flagEntries.length ? `<span class="rv-field-flag-reason">⚠ ${flagEntries.map((e) => escapeHtml(e.reason)).join("; ")} (was flagged at approval)</span>` : ""}
+        </div>`;
+    })
+    .join("");
+
+  const main = el(`
+    <div class="rv-main">
+      <div class="rv-review">
+        <div class="rv-review-topbar">
+          <button class="bm-btn bm-btn-ghost bm-btn-sm" id="back-to-approved">${ICONS.chevronLeft} Approved</button>
+          <span class="rv-review-counter">${state.selectedIndex + 1} of ${state.approvedList.length}</span>
+          <div class="rv-review-nav">
+            <button class="bm-btn bm-btn-secondary bm-btn-sm" id="prev-approved" ${state.selectedIndex <= 0 ? "disabled" : ""}>${ICONS.chevronLeft}</button>
+            <button class="bm-btn bm-btn-secondary bm-btn-sm" id="next-approved" ${state.selectedIndex >= state.approvedList.length - 1 ? "disabled" : ""}>${ICONS.chevronRight}</button>
+          </div>
+        </div>
+        <div class="rv-review-warning">Read-only — this is exactly what was approved${record.approved_at ? ` on ${escapeHtml(record.approved_at)}` : ""}.</div>
+        <div class="rv-review-layout" id="review-layout">
+          <div class="rv-review-image-pane" id="image-pane" style="width: ${state.settings?.imagePaneWidth || DEFAULT_IMAGE_PANE_WIDTH}px">
+            ${
+              imageUrl
+                ? `<img id="claim-image" src="${escapeAttr(imageUrl)}" alt="Source scan" draggable="false" />
+                   <div class="rv-zoom-controls">
+                     <button class="rv-zoom-btn" id="zoom-out" title="Zoom out">&minus;</button>
+                     <button class="rv-zoom-btn rv-zoom-label" id="zoom-reset" title="Reset to fit">Fit</button>
+                     <button class="rv-zoom-btn" id="zoom-in" title="Zoom in">+</button>
+                     <button class="rv-zoom-btn" id="open-image" title="Open image file">${ICONS.folder}</button>
+                   </div>`
+                : "<span>No image</span>"
+            }
+          </div>
+          <div class="rv-resize-handle" id="resize-handle" title="Drag to resize"></div>
+          <div class="rv-review-form-pane">${rows}</div>
+        </div>
+      </div>
+    </div>
+  `);
+  main.querySelector("#back-to-approved").addEventListener("click", () => switchView("approved"));
+  main.querySelector("#prev-approved").addEventListener("click", () => openApprovedClaim(state.selectedIndex - 1));
+  main.querySelector("#next-approved").addEventListener("click", () => openApprovedClaim(state.selectedIndex + 1));
+  // Same handle/persisted width and the same zoom/pan (see wireResizeHandle/
+  // wireImagePane) as the editable review screen -- one remembered pane
+  // split and per-claim zoom state across both, not a separate one just for
+  // this read-only view. Nothing about zoom/pan writes to the claim itself
+  // (it only ever touches persistedZoomState + the <img>'s own inline
+  // style), so reusing it here doesn't compromise "read-only."
+  wireResizeHandle(main);
+  wireImagePane(main, imagePath, record.claim_id);
+  return main;
+}
+
 // --- Review view -----------------------------------------------------------
 
-function isArrayField(description) {
-  return /JSON array/i.test(description || "");
+// From dump_schema.py's "arrays" list (claim_schemas.py's
+// *_STRING_ARRAY_FIELDS + *_ARRAY_ITEMS' own keys combined), not sniffed
+// from the field's description text -- this used to be a `/JSON array/i`
+// regex against the description, which broke the moment ARRAY_REVIEW_HINTS
+// started rewording service_lines/revenue_lines/etc.'s description to no
+// longer say "JSON array" (see claim_schemas.py's own isBooleanField-
+// adjacent comment: the exact same failure mode already happened once for
+// booleans, which is why THAT one stopped sniffing text long ago).
+function isArrayField(formType, key) {
+  return !!state.schema?.[formType]?.arrays?.includes(key);
 }
 
 // Which fields are booleans -- from dump_schema.py's "booleans" list
@@ -829,7 +1014,7 @@ function readFormFields() {
     if (key === "form_type") continue;
     const node = document.getElementById(`field-${key}`);
     if (!node) continue;
-    if (isArrayField(fieldSpecs[key])) {
+    if (isArrayField(formType, key)) {
       // A real add/remove list, not JSON text to parse -- see
       // renderArrayField/wireArrayEditors/readArrayField.
       fields[key] = readArrayField(formType, key, node);
@@ -1038,7 +1223,7 @@ function renderReviewView() {
     .filter((key) => key !== "form_type")
     .map((key) => {
       const desc = fieldSpecs[key];
-      const isArr = isArrayField(desc);
+      const isArr = isArrayField(record.form_type, key);
       const isBool = isBooleanField(record.form_type, key);
       const value = fields[key];
       const isMissing = missing.has(key);
@@ -1603,6 +1788,8 @@ function render() {
   else if (state.view === "org") main = renderOrgView();
   else if (state.view === "about") main = renderAboutView();
   else if (state.view === "exports") main = renderExportsView();
+  else if (state.view === "approved-detail" && state.currentApprovedClaim) main = renderApprovedDetailView();
+  else if (state.view === "approved" || state.view === "approved-detail") main = renderApprovedListView();
   else main = renderQueueView();
   body.appendChild(main);
   frag.appendChild(body);

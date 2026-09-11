@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld("api", {
 
   listPendingClaims: () => ipcRenderer.invoke("claims-list-pending"),
   getClaim: (claimId) => ipcRenderer.invoke("claims-get", claimId),
+  listApprovedClaims: () => ipcRenderer.invoke("claims-list-approved"),
+  getApprovedClaim: (claimId) => ipcRenderer.invoke("claims-get-approved", claimId),
   saveClaim: (claimId, fields) => ipcRenderer.invoke("claims-save", { claimId, fields }),
   dismissFlag: (claimId, fields, key) => ipcRenderer.invoke("claims-dismiss-flag", { claimId, fields, key }),
   approveClaim: (claimId, fields) => ipcRenderer.invoke("claims-approve", { claimId, fields }),

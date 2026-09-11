@@ -42,6 +42,36 @@ def _composite(*parts) -> str:
     return SUBELEMENT_SEPARATOR.join("" if p is None else str(p) for p in parts)
 
 
+def _diagnosis_pointer_composite(pointer_raw) -> Optional[str]:
+    """
+    Converts box 24E's letter notation (claim_schemas.py asks the model for
+    "e.g. 'A' or 'A,B'", matching what's actually printed in that box) into
+    the numeric, SUBELEMENT_SEPARATOR-joined composite X12 5010 837P's
+    SV1-07 (Composite Diagnosis Code Pointer, C004) actually requires -- up
+    to 4 numbers, each the 1-based position of that diagnosis in the
+    claim's own HI segment list (A=1st diagnosis=1, B=2nd=2, ...), never
+    the literal letter. There's no letter->index translation anywhere else
+    in this file to reuse (contrast _RELATIONSHIP_TEXT_TO_CODE, which does
+    the equivalent for patient_relationship_to_insured) -- box 21's own
+    lettering IS the 1-based index already, so this is arithmetic, not a
+    lookup table.
+
+    Tolerates the two ways a multi-pointer line might come back from
+    extraction/Review -- "A,B" (comma-separated) or "AB" (no separator) --
+    and ignores anything that isn't a letter. Returns None (not a
+    default) for a missing/empty/unrecognized pointer, matching
+    field_validation.py's own "flag it, don't silently guess" treatment of
+    this same field -- see build_837p's own fallback for what happens when
+    this returns None.
+    """
+    if not pointer_raw:
+        return None
+    letters = [ch for ch in str(pointer_raw).upper() if ch.isalpha()]
+    if not letters:
+        return None
+    return _composite(*(str(ord(ch) - ord("A") + 1) for ch in letters))
+
+
 def _digits(value) -> str:
     return re.sub(r"\D", "", str(value or ""))
 
@@ -162,8 +192,27 @@ def _common_header_segments(fields: dict, org: dict, now: datetime) -> list:
 
 
 def _billing_provider_loop(hl_id: str, next_hl_id: str, org: dict, fields: dict, prefix: str) -> list:
-    """Loop 2000A / 2010AA - Billing Provider."""
+    """
+    Loop 2000A (Billing Provider Hierarchical Level) / 2010AA (Billing
+    Provider Name). Segment order here matters and used to be wrong: 2000A's
+    own situational segment is PRV (Billing Provider Specialty Information),
+    which belongs right after HL -- BEFORE the nested 2010AA loop even
+    starts, not after it. 2010AA's own segment order is NM1, N3, N4, REF
+    (tax ID), PER (contact) -- REF before PER, not after. Emitting PRV
+    inside the 2010AA run (as this used to, between N4 and REF) and PER
+    before both put every segment from PRV onward in a position a strict
+    X12/HIPAA validator's loop-boundary tracking doesn't expect -- verified
+    against a real claim where the REF (box 25 tax ID) *was* present,
+    byte-for-byte, in the built 837, but never made it into a clearinghouse
+    (ClaimsMD)'s parsed claim, exactly the kind of silent drop a
+    misplaced-relative-to-its-loop segment causes.
+    """
     segs = [_seg("HL", hl_id, "", "20", "1")]
+    if fields.get(f"{prefix}billing_provider_taxonomy"):
+        # PRV*BI*PXC*<taxonomy> -- Loop 2000A, right after HL (see docstring).
+        # BI = Billing, PXC = Healthcare Provider Taxonomy Code (the only
+        # qualifier that applies here).
+        segs.append(_seg("PRV", "BI", "PXC", fields[f"{prefix}billing_provider_taxonomy"]))
     npi = _require(fields, f"{prefix}billing_provider_npi")
     segs.append(_seg("NM1", "85", "2", fields[f"{prefix}billing_provider_name"], "", "", "", "", "XX", npi))
     if fields.get(f"{prefix}billing_provider_address"):
@@ -172,13 +221,6 @@ def _billing_provider_loop(hl_id: str, next_hl_id: str, org: dict, fields: dict,
         segs.append(_seg("N4", fields.get(f"{prefix}billing_provider_city"),
                           fields.get(f"{prefix}billing_provider_state"),
                           fields.get(f"{prefix}billing_provider_zip")))
-    if fields.get(f"{prefix}billing_provider_phone"):
-        segs.append(_seg("PER", "IC", "", "TE", _digits(fields[f"{prefix}billing_provider_phone"])))
-    if fields.get(f"{prefix}billing_provider_taxonomy"):
-        # PRV*BI*PXC*<taxonomy> -- Loop 2000A/2010AA Provider Information.
-        # BI = Billing, PXC = Healthcare Provider Taxonomy Code (the only
-        # qualifier that applies here).
-        segs.append(_seg("PRV", "BI", "PXC", fields[f"{prefix}billing_provider_taxonomy"]))
     tax_id = fields.get("federal_tax_id")
     if tax_id:
         if "ssn_box_checked" in fields or "ein_box_checked" in fields:
@@ -204,6 +246,8 @@ def _billing_provider_loop(hl_id: str, next_hl_id: str, org: dict, fields: dict,
             # UB-04: FL5 is just "federal tax number", no SSN/EIN split on the form at all.
             qualifier = "EI"
         segs.append(_seg("REF", qualifier, _digits(tax_id)))
+    if fields.get(f"{prefix}billing_provider_phone"):
+        segs.append(_seg("PER", "IC", "", "TE", _digits(fields[f"{prefix}billing_provider_phone"])))
     return segs
 
 
@@ -239,11 +283,15 @@ def _subscriber_loop(hl_id: str, parent_hl_id: str, fields: dict, org: dict, sbr
     # and UB04's FL62 are both named insured_group_number and land in SBR03 the same
     # way (CMS1500's used to be misleadingly named other_insured_group_number, before
     # box 9's genuinely separate "other insured" fields existed to claim that name --
-    # see CMS1500_FIELDS); insured_group_name (UB04 FL61) is CMS1500's counterpart
-    # too, even though CMS1500 doesn't have its own separate group_name field to read
-    # one from (box 11 is number-only there).
+    # see CMS1500_FIELDS). SBR04 (X12 5010 TR3: required "when insured group or plan
+    # name is known") is UB04's insured_group_name (FL61) OR CMS1500's insured_plan_name
+    # (box 11c, "Insurance Plan Name or Program Name") -- NUCC maps box 11c to exactly
+    # this element; the two are each form's own name for it, not one form having it and
+    # the other lacking it (a wrong assumption a previous version of this comment made,
+    # which is why box 11c was captured everywhere else -- extraction, Review, the
+    # approved JSON -- but silently never reached the actual 837 until now).
     group_number = fields.get("insured_group_number") or ""
-    group_name = fields.get("insured_group_name") or ""
+    group_name = fields.get("insured_group_name") or fields.get("insured_plan_name") or ""
     segs.append(_seg("SBR", "P", sbr_relationship, group_number, group_name, "", "", "", "", claim_filing_code))
 
     last = _require(fields, "insured_last_name")
@@ -353,9 +401,21 @@ def build_837p(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
     if fields.get("claim_narrative"):
         segs.append(_seg("NTE", "ADD", fields["claim_narrative"]))
 
+    # NM1 elements 4/5 are last/first name, not one combined name field --
+    # same fix as the UB04 attending/operating providers above (see their
+    # own comment): box 17 used to have its whole "referring_provider_name"
+    # string shoved into just the last-name element, which is exactly why a
+    # clearinghouse showing separate Last/First/MI boxes displayed the
+    # entire name jammed into "Last Name" with First/MI blank. Falls back to
+    # the old combined field when the new split ones are both empty -- a
+    # claim already sitting in the pipeline (extracted before this schema
+    # change) still has referring_provider_name, not the new keys, and
+    # should keep behaving as it did (name in last-name-only) rather than
+    # silently go blank until it's re-extracted or hand-fixed in Review.
     if fields.get("referring_provider_npi"):
-        segs.append(_seg("NM1", "DN", "1", fields.get("referring_provider_name", ""), "", "", "", "",
-                          "XX", fields["referring_provider_npi"]))
+        last = fields.get("referring_provider_last_name") or fields.get("referring_provider_name") or ""
+        first = fields.get("referring_provider_first_name") or ""
+        segs.append(_seg("NM1", "DN", "1", last, first, "", "", "", "XX", fields["referring_provider_npi"]))
 
     # Loop 2310C - Service Facility Location (box 32), only when given and
     # presumably different from the billing provider (box 33) -- if a
@@ -373,16 +433,38 @@ def build_837p(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
     for i, line in enumerate(fields["service_lines"], start=1):
         segs.append(_seg("LX", i))
         proc_composite = _composite("HC", line.get("cpt_hcpcs_code"), *(line.get("modifiers") or []))
+        # SV1-07 needs the numeric composite _diagnosis_pointer_composite()
+        # builds, not the raw letter(s) Review/extraction store -- see its
+        # own docstring. Falls back to "1" (point at the primary diagnosis)
+        # only when the line genuinely has nothing usable; a real, visible
+        # gap here is field_validation.py's job to flag before approval, not
+        # something to leave this line silently swallowing.
+        dx_pointer = _diagnosis_pointer_composite(line.get("diagnosis_pointer")) or "1"
         segs.append(_seg("SV1", proc_composite, _money(line.get("charge_amount")), "UN",
                           line.get("units", 1), line.get("place_of_service", place_of_service), "",
-                          line.get("diagnosis_pointer", "A")))
+                          dx_pointer))
         date_from = _date8(line.get("date_from"))
         date_to = _date8(line.get("date_to")) or date_from
         if date_from:
             date_range = date_from if date_from == date_to else f"{date_from}-{date_to}"
             segs.append(_seg("DTP", "472", "D8" if date_from == date_to else "RD8", date_range))
         if line.get("rendering_provider_npi"):
-            segs.append(_seg("NM1", "82", "1", "", "", "", "", "", "XX", line["rendering_provider_npi"]))
+            # NM103 (Rendering Provider Last Name or Organizational Name) is
+            # required by the X12 segment itself whenever this loop fires at
+            # all -- sending it blank (as this used to) isn't just
+            # incomplete, it's invalid, which is exactly why a clearinghouse
+            # showing a "Box 31" name next to this NPI (2420A/NM1*82) had
+            # nothing to show. There's no source on the CMS-1500 form for
+            # the INDIVIDUAL rendering provider's own name -- box 24J is
+            # NPI-only -- so this falls back to the billing provider's own
+            # name as entity type "2" (organization) rather than fabricate
+            # a person's name that was never on the form. If claims commonly
+            # have a different individual rendering provider per line, ask
+            # to have box 31's own (often-typed, not just signed) name
+            # captured at extraction time instead -- that would be the
+            # correct per-line identity this fallback can't provide.
+            segs.append(_seg("NM1", "82", "2", fields.get("billing_provider_name", ""), "", "", "", "",
+                              "XX", line["rendering_provider_npi"]))
         # 2420A PRV -- rendering provider taxonomy, box 24I/24J's top half
         # (see claim_schemas.py's rendering_provider_taxonomy). "PE"
         # (Performing) is the PRV01 provider-code for a rendering provider,
