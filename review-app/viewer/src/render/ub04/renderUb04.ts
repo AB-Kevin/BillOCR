@@ -520,6 +520,13 @@ export function getUb04BoxLines(claim: Claim, box: FieldBox): string[] {
       return wrapWithOverflow(inst.conditionCodes, CONDITION_CODES_PER_LINE, maxLines);
     }
 
+    // FL29 — accident state (reuses claim.flags.autoAccidentState, the same
+    // field the CMS-1500 renderer draws for its own box 10b). FL30 has no
+    // source field and no fixed real-world usage, so it's omitted rather
+    // than padded with a bare dash line — same convention as billInfo's FL7.
+    case 'acdtStateReserved':
+      return [orDash(claim.flags.autoAccidentState)];
+
     case 'occurrence': {
       if (!inst) return [EM_DASH];
       const codes = inst.occurrenceCodes.map((o) => `${o.code}:${formatDateShort(o.date)}`);
@@ -556,14 +563,21 @@ export function getUb04BoxLines(claim: Claim, box: FieldBox): string[] {
       return [`PRIOR PMT: ${formatMoney(claim.totals.amountPaid)}`, `EST DUE: ${formatMoney(due)}`];
     }
 
-    // FL58/59/60/62 — insured's name / relationship-to-insured / unique ID
-    // (member ID) / group number, combined into one box (see layout.ts's
-    // header comment on why several FLs share a box here).
+    // FL58/59/60/61/62 — insured's name / relationship-to-insured / unique ID
+    // (member ID) / group name / group number, combined into one box (see
+    // layout.ts's header comment on why several FLs share a box here). FL61
+    // "group name" has no dedicated Claim field distinct from FL62's group
+    // number; insured.plan (the same "insurance plan name" field the
+    // CMS-1500 renderer draws for its own boxes 9d/11c) is the closest
+    // available stand-in rather than leaving FL61 unrepresented entirely.
     case 'insuredGroup': {
       const rel = orDash(claim.patient.relationshipToInsured);
       const id = orDash(claim.insured.memberId);
+      const grpName = orDash(claim.insured.plan);
       const grp = orDash(claim.insured.group);
-      return [nameOrDash(claim.insured.name), `REL: ${rel}   ID: ${id}   GRP: ${grp}`];
+      // Kept to 2 lines (not 3) — ROW_G_H only budgets maxLinesForHeight(32)
+      // = 2 lines; see maxLinesForHeight's own overflow-guard note.
+      return [`${nameOrDash(claim.insured.name)}   REL: ${rel}`, `ID: ${id}   GROUP NAME: ${grpName}   GRP #: ${grp}`];
     }
 
     // FL66/67 — the ICD indicator (FL66) is a fixed "this claim uses

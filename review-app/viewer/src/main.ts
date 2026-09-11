@@ -41,6 +41,57 @@ declare global {
   }
 }
 
+// Facsimile/inspector split width -- draggable via .viewer-resize-handle,
+// shared across every claim block through --viewer-facsimile-width (see
+// viewer.css) and persisted across viewer windows in localStorage (this
+// window's own preload surface, viewerApi, has no settings channel, and
+// localStorage is simplest here since every viewer window loads the same
+// file:// index.html and so shares one origin's storage).
+const FACSIMILE_WIDTH_STORAGE_KEY = "viewer.facsimilePaneWidth";
+const DEFAULT_FACSIMILE_PANE_WIDTH = 480;
+const MIN_FACSIMILE_PANE_WIDTH = 320;
+const MIN_INSPECTOR_PANE_WIDTH = 320;
+
+function loadFacsimilePaneWidth(): number {
+  const stored = Number(localStorage.getItem(FACSIMILE_WIDTH_STORAGE_KEY));
+  return Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_FACSIMILE_PANE_WIDTH;
+}
+
+function applyFacsimilePaneWidth(width: number): void {
+  document.documentElement.style.setProperty("--viewer-facsimile-width", `${width}px`);
+}
+
+// Wires every claim block's drag handle (one per block in a multi-claim
+// file) to resize the shared facsimile pane width, mirroring
+// wireResizeHandle() on Review's own claim-review screen.
+function wireResizeHandles(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>(".viewer-resize-handle").forEach((handle) => {
+    const layout = handle.closest(".viewer-claim-layout") as HTMLElement | null;
+    const facsimilePane = layout?.querySelector(".viewer-facsimile-pane") as HTMLElement | null;
+    if (!layout || !facsimilePane) return;
+
+    handle.addEventListener("pointerdown", (e) => {
+      handle.setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const startWidth = facsimilePane.getBoundingClientRect().width;
+      const maxWidth = layout.getBoundingClientRect().width - MIN_INSPECTOR_PANE_WIDTH - handle.getBoundingClientRect().width;
+      handle.classList.add("dragging");
+      const onMove = (ev: PointerEvent) => {
+        const next = Math.max(MIN_FACSIMILE_PANE_WIDTH, Math.min(maxWidth, startWidth + (ev.clientX - startX)));
+        applyFacsimilePaneWidth(next);
+      };
+      const onUp = () => {
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.classList.remove("dragging");
+        localStorage.setItem(FACSIMILE_WIDTH_STORAGE_KEY, String(Math.round(facsimilePane.getBoundingClientRect().width)));
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+    });
+  });
+}
+
 function el(html: string): HTMLElement {
   const t = document.createElement("template");
   t.innerHTML = html.trim();
@@ -115,6 +166,7 @@ function renderClaim(claim: Claim): string {
       row("Date of birth", val(claim.insured.dob)),
       row("Sex", val(claim.insured.sex)),
       row("Address", addrText(claim.insured.address)),
+      row("Phone", val(claim.insured.phone)),
       row("Employer", val(claim.insured.employer)),
     ].join("")
   );
@@ -363,11 +415,15 @@ async function init() {
               <div class="viewer-facsimile-pane" id="viewer-facsimile-${i}">
                 <div class="viewer-loading">Loading preview…</div>
               </div>
+              <div class="viewer-resize-handle" title="Drag to resize the preview"></div>
               <div class="viewer-inspector-pane">${renderClaim(claim)}</div>
             </div>
           </div>`
       )
       .join('<hr class="viewer-claim-divider" />')}</div>`;
+
+    applyFacsimilePaneWidth(loadFacsimilePaneWidth());
+    wireResizeHandles(main);
 
     claims.forEach((claim, i) => {
       const pane = document.getElementById(`viewer-facsimile-${i}`);

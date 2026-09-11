@@ -733,8 +733,11 @@ function getBoxLines(claim: Claim, key: string): string[] {
       ];
     case 'insured.addressStreet':
       return [addressStreetLine(claim.insured.address)];
-    case 'insured.cityStateZip':
-      return [cityStateZipLine(claim.insured.address)];
+    case 'insured.cityStateZipPhone':
+      return [
+        [cityStateZipLine(claim.insured.address), claim.insured.phone !== '' ? claim.insured.phone : ''].filter((l) => l !== '').join('   ') ||
+          EM_DASH,
+      ];
 
     case 'otherInsurance.name':
       return [claim.otherInsurance ? nameOrDash(claim.otherInsurance.name) : EM_DASH];

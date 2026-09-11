@@ -212,6 +212,7 @@ export class JsonClaimSource implements ClaimSource {
         dob: s(f['ins_dob']),
         sex: s(f['ins_sex']),
         address: address(f, 'ins'),
+        phone: s(f['ins_phone']),
         employer: s(f['ins_employer']),
       },
       payer: {

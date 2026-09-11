@@ -119,9 +119,9 @@ const COL2_W = 146;
 const COL3_X = COL2_X + COL2_W;
 const COL3_W = CONTENT_W - COL1_W - COL2_W; // 188
 
-/** col1 has 7 rows (2, 5, city/state/zip+phone, 9, 9a, 9b, 9d); col3 carries an extra 8th row (11c) the design's mock omits but the JSON field map still needs a home for. */
-const COL1_ROWS = 7;
-const COL2_ROWS = 6;
+/** col1 has 8 rows (2, 5, city/state/zip+phone, 9, 9a, 9b, 9c, 9d); col2 has 7 (3, 6, 8, 10a, 10b, 10c, 10d) — both include the "RESERVED FOR NUCC USE" boxes (8, 9c) the design's mock omitted, drawn blank like 9b/10c/10d for the same pixel-completeness reasons; col3's 8th row (11c) similarly fills a gap the mock left. */
+const COL1_ROWS = 8;
+const COL2_ROWS = 7;
 const COL3_ROWS = 8;
 const gridBottom = bandsTop + BAND1_H + Math.max(COL1_ROWS, COL2_ROWS, COL3_ROWS) * ROW_H;
 const GRID_TOP = band1Bottom;
@@ -138,14 +138,16 @@ export const FIELD_BOXES: FieldBox[] = [
   { key: 'otherInsurance.name', number: '9', label: "OTHER INSURED'S NAME (Last, First, Middle Initial)", rect: colRow(COL1_X, COL1_W, 3) },
   { key: 'otherInsurance.policyOrGroup', number: '9a', label: "OTHER INSURED'S POLICY OR GROUP NUMBER", rect: colRow(COL1_X, COL1_W, 4) },
   { key: 'reserved9b', number: '9b', label: 'RESERVED FOR NUCC USE', rect: colRow(COL1_X, COL1_W, 5) },
-  { key: 'otherInsurance.plan', number: '9d', label: 'INSURANCE PLAN NAME OR PROGRAM NAME', rect: colRow(COL1_X, COL1_W, 6) },
+  { key: 'reserved9c', number: '9c', label: 'RESERVED FOR NUCC USE', rect: colRow(COL1_X, COL1_W, 6) },
+  { key: 'otherInsurance.plan', number: '9d', label: 'INSURANCE PLAN NAME OR PROGRAM NAME', rect: colRow(COL1_X, COL1_W, 7) },
 
-  { key: 'reserved10c', number: '10c', label: 'OTHER ACCIDENT?', rect: colRow(COL2_X, COL2_W, 4) },
-  { key: 'reserved10d', number: '10d', label: 'CLAIM CODES (Designated by NUCC)', rect: colRow(COL2_X, COL2_W, 5) },
+  { key: 'reserved8', number: '8', label: 'RESERVED FOR NUCC USE', rect: colRow(COL2_X, COL2_W, 2) },
+  { key: 'reserved10c', number: '10c', label: 'OTHER ACCIDENT?', rect: colRow(COL2_X, COL2_W, 5) },
+  { key: 'reserved10d', number: '10d', label: 'CLAIM CODES (Designated by NUCC)', rect: colRow(COL2_X, COL2_W, 6) },
 
   { key: 'insured.name', number: '4', label: "INSURED'S NAME (Last, First, Middle Initial)", rect: colRow(COL3_X, COL3_W, 0) },
   { key: 'insured.addressStreet', number: '7', label: "INSURED'S ADDRESS (No., Street)", rect: colRow(COL3_X, COL3_W, 1) },
-  { key: 'insured.cityStateZip', number: '', label: 'CITY / STATE / ZIP', rect: colRow(COL3_X, COL3_W, 2) },
+  { key: 'insured.cityStateZipPhone', number: '', label: 'CITY / STATE / ZIP / TELEPHONE', rect: colRow(COL3_X, COL3_W, 2) },
   { key: 'insured.group', number: '11', label: "INSURED'S POLICY GROUP OR FECA NUMBER", rect: colRow(COL3_X, COL3_W, 3) },
   // The Claim model has no "other claim ID" field from the JSON feed (see
   // docs/PLAN_REVISION_v2_JSON.md §5, which maps 11b -> ins_employer); the
@@ -158,8 +160,8 @@ export const FIELD_BOXES: FieldBox[] = [
 /** Checkbox-style boxes — drawn with a dedicated helper in the renderer rather than the generic value renderer. */
 export const BOX3_SEX: FieldBox = { key: 'patient.dobSex', number: '3', label: "PATIENT'S BIRTH DATE / SEX", rect: colRow(COL2_X, COL2_W, 0) };
 export const BOX6_RELATIONSHIP: FieldBox = { key: 'patient.relationship', number: '6', label: 'PATIENT RELATIONSHIP TO INSURED', rect: colRow(COL2_X, COL2_W, 1) };
-export const BOX10A_EMPLOYMENT: FieldBox = { key: 'flags.employmentRelated', number: '10a', label: "IS PATIENT'S CONDITION RELATED TO: EMPLOYMENT?", rect: colRow(COL2_X, COL2_W, 2) };
-export const BOX10B_AUTO: FieldBox = { key: 'flags.autoAccident', number: '10b', label: 'AUTO ACCIDENT? (PLACE)', rect: colRow(COL2_X, COL2_W, 3) };
+export const BOX10A_EMPLOYMENT: FieldBox = { key: 'flags.employmentRelated', number: '10a', label: "IS PATIENT'S CONDITION RELATED TO: EMPLOYMENT?", rect: colRow(COL2_X, COL2_W, 3) };
+export const BOX10B_AUTO: FieldBox = { key: 'flags.autoAccident', number: '10b', label: 'AUTO ACCIDENT? (PLACE)', rect: colRow(COL2_X, COL2_W, 4) };
 export const BOX11A_SEX: FieldBox = { key: 'insured.dobSex', number: '11a', label: "INSURED'S DATE OF BIRTH / SEX", rect: colRow(COL3_X, COL3_W, 4) };
 export const BOX11D_OTHER_PLAN: FieldBox = { key: 'otherInsurance.present', number: '11d', label: 'IS THERE ANOTHER HEALTH BENEFIT PLAN?', rect: colRow(COL3_X, COL3_W, 7) };
 
@@ -325,7 +327,11 @@ export const BOX26_ACCOUNT: FieldBox = { key: 'patient.accountNumber', number: '
 export const BOX27_ASSIGNMENT: FieldBox = { key: 'flags.acceptAssignment', number: '27', label: 'ACCEPT ASSIGNMENT?', rect: take2530(col27W) };
 export const BOX28_TOTAL: FieldBox = { key: 'totals.totalCharge', number: '28', label: 'TOTAL CHARGE', rect: take2530(col28W), align: 'right' };
 export const BOX29_PAID: FieldBox = { key: 'totals.amountPaid', number: '29', label: 'AMOUNT PAID', rect: take2530(col29W), align: 'right' };
-export const BOX30_BALANCE: FieldBox = { key: 'totals.balanceDue', number: '30', label: 'BALANCE DUE', rect: take2530(col30W), align: 'right' };
+// The 02/12 NUCC form's box 30 is actually "Rsvd for NUCC Use," not a
+// balance-due field -- but a computed total-minus-paid is more useful here
+// than leaving it blank, so (same compromise as box 11b above) the label
+// reflects the value actually drawn rather than the NUCC default.
+export const BOX30_BALANCE: FieldBox = { key: 'totals.balanceDue', number: '30', label: 'RSVD FOR NUCC USE — BALANCE DUE', rect: take2530(col30W), align: 'right' };
 const row2530Bottom = row2530Y + ROW2530_H;
 
 // --- Boxes 31 / 32 / 33 -----------------------------------------------------

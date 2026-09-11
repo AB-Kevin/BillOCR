@@ -106,8 +106,11 @@ const ROW_B_SEX_X = ROW_B_DOB_X + ROW_B_DOB_W + COL_GAP;
 
 // --- Row C: admission date/type/source/status (FL12-17), full width ---
 const rowC = takeRow(22);
-// --- Row D: condition codes (FL18-28), full width ---
+// --- Row D: condition codes (FL18-28) | accident state (FL29) + reserved (FL30) alongside, mirroring the real form's layout ---
 const rowD = takeRow(22);
+const ROW_D_ACDT_W = 70;
+const ROW_D_CONDITION_W = FULL_W - ROW_D_ACDT_W - COL_GAP;
+const ROW_D_ACDT_X = LEFT_X + ROW_D_CONDITION_W + COL_GAP;
 // --- Row E: occurrence codes/spans (FL31-36) | value codes (FL39-41) — side by side, mirroring the design's single-row grouping ---
 // Taller than the single-line rows above: these two boxes hold a variable,
 // unbounded-on-a-real-837I list of codes (see the height-clamping note on
@@ -211,7 +214,12 @@ export const HEADER_FIELD_BOXES: FieldBox[] = [
 
   { key: 'admission', number: '12-17', label: 'ADMISSION DATE / TYPE / SOURCE / PATIENT STATUS', rect: { x: LEFT_X, y: rowC, width: FULL_W, height: 22 } },
 
-  { key: 'conditionCodes', number: '18-28', label: 'CONDITION CODES', rect: { x: LEFT_X, y: rowD, width: FULL_W, height: 22 } },
+  { key: 'conditionCodes', number: '18-28', label: 'CONDITION CODES', rect: { x: LEFT_X, y: rowD, width: ROW_D_CONDITION_W, height: 22 } },
+  // FL29/30 — accident state + reserved. claim.flags.autoAccidentState
+  // already exists (used by the CMS-1500 renderer's own box 10b) but had no
+  // home on the UB-04 facsimile at all; FL30 has no source field and is
+  // drawn reserved, matching the 9b/10c/10d treatment on the CMS-1500 side.
+  { key: 'acdtStateReserved', number: '29 / 30', label: 'ACDT STATE / RESERVED', rect: { x: ROW_D_ACDT_X, y: rowD, width: ROW_D_ACDT_W, height: 22 } },
 
   { key: 'occurrence', number: '31-36', label: 'OCCURRENCE CODES / SPANS', rect: { x: LEFT_X, y: rowE, width: COL_W, height: OCCURRENCE_VALUE_ROW_H } },
   { key: 'valueCodes', number: '39-41', label: 'VALUE CODES', rect: { x: RIGHT_X, y: rowE, width: COL_W, height: OCCURRENCE_VALUE_ROW_H } },

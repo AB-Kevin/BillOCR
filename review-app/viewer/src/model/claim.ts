@@ -204,6 +204,8 @@ export interface Claim {
     dob: string;
     sex: string;
     address: Address;
+    /** Box 7's telephone field -- distinct from patient.phone (box 5). */
+    phone: string;
     employer: string;
   };
 

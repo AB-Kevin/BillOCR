@@ -206,6 +206,7 @@ interface SubscriberIdentity {
   dob: string;
   sex: string;
   address: Address;
+  phone: string;
 }
 
 interface SubscriberEntry {
@@ -236,6 +237,7 @@ function extractSubscriberAndPayer(segs: Segment[]): SubscriberEntry {
       dob: dmg ? x12Date(dmg.elements[1]) : '',
       sex: dmg?.elements[2] ?? '',
       address: findAddress(ilTail),
+      phone: findPhone(ilTail),
     },
     payer: {
       name: pr?.info.last ?? '',
@@ -275,7 +277,7 @@ function extractPatient(segs: Segment[]): { patient: PatientIdentity; relationsh
 
 /** Canonical patient rule: no 2000C -> patient := subscriber, relationship := self ('18'). */
 function subscriberAsPatient(subscriber: SubscriberIdentity): PatientIdentity {
-  return { name: subscriber.name, dob: subscriber.dob, sex: subscriber.sex, address: subscriber.address, phone: '' };
+  return { name: subscriber.name, dob: subscriber.dob, sex: subscriber.sex, address: subscriber.address, phone: subscriber.phone };
 }
 
 // ---------------------------------------------------------------------------
@@ -640,6 +642,7 @@ function buildClaim(ctx: ClaimCtx, claimSegs: Segment[], delimiters: Delimiters)
       dob: ctx.subscriber.dob,
       sex: ctx.subscriber.sex,
       address: ctx.subscriber.address,
+      phone: ctx.subscriber.phone,
       employer: '',
     },
     payer: ctx.payer,
