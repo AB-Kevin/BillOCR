@@ -12,7 +12,7 @@
     "postversion": "node scripts/postversion.js"
   },
   "devDependencies": {
-    "electron": "^43.4.1",
+    "electron": "^44.3.0",
     "electron-builder": "^26.15.3"
   },
   "build": {
