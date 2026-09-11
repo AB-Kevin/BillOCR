@@ -1,0 +1,13 @@
+# Normalize line endings for all text files to LF in the repository,
+# regardless of each machine's core.autocrlf setting. Git still checks
+# files out using the OS/editor's natural convention where configured;
+# this just keeps what's actually stored in git consistent so switching
+# between Mac and Windows doesn't produce line-ending-only diffs.
+* text=auto eol=lf
+
+# Explicit binary types — never eligible for line-ending or text conversion.
+*.png binary
+*.ico binary
+*.icns binary
+*.ttf binary
+*.pyc binary
