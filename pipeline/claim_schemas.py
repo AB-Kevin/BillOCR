@@ -56,10 +56,19 @@ CMS1500_FIELDS = {
     "referring_provider_last_name": (
         "Box 17 - referring provider's last name, else null. Box 17 has its own small qualifier box "
         "printed immediately to its left (codes like 'DN' Referring Provider, 'DK' Ordering, 'DQ' "
-        "Supervising) -- that qualifier is part of the form, not the name; report only the name itself, "
-        "e.g. a box reading 'DN Aurora Bell' means last name 'Bell', not 'DN Aurora' or 'DN Bell'."
+        "Supervising) -- that qualifier is part of the form, not the name; strip it before reading the "
+        "name itself. Unlike box 31 (labeled '...Last, First, Middle'), box 17 has NO such label -- "
+        "most forms print the referring provider's name as First Last, in that order, with no comma "
+        "between the two words, e.g. a box reading 'DN Aurora Bell' means first name 'Aurora', last "
+        "name 'Bell' (the LAST word on the line), not 'DN Aurora' and not the two names swapped. Only "
+        "read it as Last, First instead when the form itself prints an explicit comma between the two "
+        "names (e.g. 'Bell, Aurora')."
     ),
-    "referring_provider_first_name": "Box 17 - referring provider's first name, if present else null (see referring_provider_last_name's note on the qualifier box)",
+    "referring_provider_first_name": (
+        "Box 17 - referring provider's first name, if present else null -- see "
+        "referring_provider_last_name's note on word order and the qualifier box: box 17 is normally "
+        "printed First Last with no comma, so this is usually the FIRST word on the line, not the last."
+    ),
     "referring_provider_id": "Box 17a - referring provider's other ID (e.g. state license number), if present else null",
     "referring_provider_npi": "Box 17b - referring provider NPI, else null",
     "hospitalization_date_from": "Box 18 - hospitalization dates related to current services, from date, exactly as printed, else null",
@@ -120,12 +129,32 @@ CMS1500_FIELDS = {
         "Box 28 - total charge, printed as dollars and cents in two boxes divided by a line, same as "
         "box 24F (a wider box for whole dollars, a narrower box for cents)."
     ),
+    "rendering_provider_last_name": (
+        "Box 31 - rendering provider's last name. Box 31 is labeled 'SIGNATURE OF PHYSICIAN OR "
+        "SUPPLIER (Last, First, Middle)', but most filled-in forms actually print/type a name there, "
+        "not just a signature -- read that printed name, formatted like the label says (Last, First, "
+        "Middle): report only the part before the first comma here. This is a DIFFERENT identity from "
+        "box 33's billing/group name even when the two look similar, and must line up with the "
+        "individual NPI printed in box 24J -- never copy box 33's name into this field just because "
+        "box 31 is blank or hard to read. Some forms print a company/organization name in box 31 "
+        "instead of a person's name (e.g. 'Orthotek Inc', no comma) -- when that happens, put the "
+        "entire company name here and leave rendering_provider_first_name/rendering_provider_middle_name "
+        "null; do not invent a person's name that isn't printed."
+    ),
+    "rendering_provider_first_name": "Box 31 - rendering provider's first name, the part between the first and second commas, if present else null (see rendering_provider_last_name's note on company names and on box 33).",
+    "rendering_provider_middle_name": "Box 31 - rendering provider's middle name or initial, the part after the second comma, if present else null.",
     "service_facility_name": "Box 32 - service facility location name, if present and different from the billing provider, else null",
     "service_facility_address": "Box 32 - service facility street address, if present else null",
     "service_facility_city": "Box 32 - service facility city, if present else null",
     "service_facility_state": "Box 32 - service facility two-letter state, if present else null",
     "service_facility_zip": "Box 32 - service facility ZIP code, if present else null",
     "service_facility_npi": "Box 32a - service facility NPI, if present else null",
+    "service_facility_taxonomy": (
+        "Box 32b - service facility taxonomy code, if present else null. Box 32b has its own small "
+        "qualifier box printed immediately to its left (almost always 'ZZ', the same taxonomy qualifier "
+        "used in box 24I/24J's own top half) -- that qualifier is part of the form, not the code; report "
+        "ONLY the code itself, e.g. a box reading 'ZZ 207Q00000X' means '207Q00000X', not 'ZZ207Q00000X'."
+    ),
     "billing_provider_name": "Box 33 - billing provider or group name",
     "billing_provider_address": "Box 33 - street address",
     "billing_provider_city": "Box 33 - city",
@@ -133,7 +162,12 @@ CMS1500_FIELDS = {
     "billing_provider_zip": "Box 33 - ZIP code",
     "billing_provider_phone": "Box 33 - phone number printed near the provider name/address, digits only (the parentheses printed around the area code are part of the form, not the number), if present else null",
     "billing_provider_npi": "Box 33a - billing provider NPI",
-    "billing_provider_taxonomy": "Box 33b - taxonomy code, if present else null",
+    "billing_provider_taxonomy": (
+        "Box 33b - taxonomy code, if present else null. Box 33b has its own small qualifier box printed "
+        "immediately to its left (almost always 'ZZ', the same taxonomy qualifier used in box 24I/24J's "
+        "own top half) -- that qualifier is part of the form, not the code; report ONLY the code itself, "
+        "e.g. a box reading 'ZZ 207Q00000X' means '207Q00000X', not 'ZZ207Q00000X'."
+    ),
 }
 
 UB04_FIELDS = {
@@ -323,11 +357,15 @@ UB04_PHONE_FIELDS = ["billing_provider_phone"]
 # provider's name -- see referring_provider_last_name's description) and
 # box 24I's own qualifier (almost always "ZZ", printed directly above
 # 24J's top-half taxonomy code -- see service_lines' rendering_provider_taxonomy
-# description). Top-level fields vs. one-per-line-item fields are tracked
-# separately, same split as *_DATE_FIELDS/*_MONEY_FIELDS.
+# description). Boxes 32b/33b print that same "ZZ" qualifier immediately to
+# their own left, same shape as 24I/24J's, so they're at risk the same way.
+# Top-level fields vs. one-per-line-item fields are tracked separately, same
+# split as *_DATE_FIELDS/*_MONEY_FIELDS.
 CMS1500_QUALIFIER_FIELDS = {
     "referring_provider_last_name": ["DN", "DK", "DQ"],
     "referring_provider_first_name": ["DN", "DK", "DQ"],
+    "service_facility_taxonomy": ["ZZ"],
+    "billing_provider_taxonomy": ["ZZ"],
 }
 CMS1500_LINE_QUALIFIER_FIELDS = {"service_lines": {"rendering_provider_taxonomy": ["ZZ"]}}
 UB04_QUALIFIER_FIELDS: dict = {}

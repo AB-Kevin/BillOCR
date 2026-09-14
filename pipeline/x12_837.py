@@ -428,6 +428,35 @@ def build_837p(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
         if fields.get("service_facility_city"):
             segs.append(_seg("N4", fields.get("service_facility_city"),
                               fields.get("service_facility_state"), fields.get("service_facility_zip")))
+        # service_facility_taxonomy (box 32b) is captured (claim_schemas.py)
+        # and shown in Review, but NOT emitted here yet -- unlike box 33b's
+        # billing_provider_taxonomy (2000A PRV*BI, above) and box 24I/24J's
+        # rendering_provider_taxonomy (2420A PRV*PE, below), the base 837P
+        # 5010 (005010X222A1) implementation guide has no PRV/REF segment
+        # for 2310C at all, so there's no confirmed-correct place to put it
+        # without risking an invalid segment a clearinghouse could reject
+        # (see _billing_provider_loop's own docstring on how costly a
+        # wrong-for-its-loop segment has been before). Ask before adding
+        # one if a specific payer/clearinghouse needs it -- that'll say
+        # which segment/qualifier they actually want.
+
+    # Box 31's rendering-provider name (2420A NM1*82, below) is one name per
+    # claim -- unlike box 24J's NPI, which is per line -- so split/normalize
+    # it once here rather than inside the loop.
+    rendering_last = fields.get("rendering_provider_last_name") or ""
+    rendering_first = fields.get("rendering_provider_first_name") or ""
+    # ClaimsMD's rendering-provider import only has Last/First boxes to put
+    # a name in, not a separate "this is a company" case -- so a company
+    # name box 31 held instead of a person's name (no comma on the form,
+    # e.g. "Orthotek Inc", landing whole in rendering_last per
+    # claim_schemas.py's rendering_provider_last_name note) still needs
+    # splitting to be usable there: the last word becomes the "last name",
+    # everything before it becomes the "first name" (e.g. "Orthotek Inc" ->
+    # last "Inc", first "Orthotek"), the same shape as any other name box
+    # rather than a value ClaimsMD has nowhere to put.
+    if not rendering_first and " " in rendering_last:
+        *lead, rendering_last = rendering_last.split()
+        rendering_first = " ".join(lead)
 
     # Loop 2400 - Service lines
     for i, line in enumerate(fields["service_lines"], start=1):
@@ -453,18 +482,21 @@ def build_837p(fields: dict, org: dict, control_numbers: ControlNumbers, now: Op
             # required by the X12 segment itself whenever this loop fires at
             # all -- sending it blank (as this used to) isn't just
             # incomplete, it's invalid, which is exactly why a clearinghouse
-            # showing a "Box 31" name next to this NPI (2420A/NM1*82) had
-            # nothing to show. There's no source on the CMS-1500 form for
-            # the INDIVIDUAL rendering provider's own name -- box 24J is
-            # NPI-only -- so this falls back to the billing provider's own
-            # name as entity type "2" (organization) rather than fabricate
-            # a person's name that was never on the form. If claims commonly
-            # have a different individual rendering provider per line, ask
-            # to have box 31's own (often-typed, not just signed) name
-            # captured at extraction time instead -- that would be the
-            # correct per-line identity this fallback can't provide.
-            segs.append(_seg("NM1", "82", "2", fields.get("billing_provider_name", ""), "", "", "", "",
-                              "XX", line["rendering_provider_npi"]))
+            # showing a "Box 31" name next to this NPI (2420A/NM1*82) used to
+            # show box 33's billing/group name instead: this used to fall
+            # back to fields.get("billing_provider_name") because box 31's
+            # own name wasn't captured at extraction time at all. It now is
+            # (rendering_provider_last_name/first_name, box 31 -- see
+            # claim_schemas.py), so use that real per-claim identity, and
+            # only fall back to the old billing-name behavior for claims
+            # extracted before this schema change existed (same
+            # backward-compat reasoning as referring_provider_name above).
+            if rendering_last:
+                segs.append(_seg("NM1", "82", "1", rendering_last, rendering_first, "", "", "",
+                                  "XX", line["rendering_provider_npi"]))
+            else:
+                segs.append(_seg("NM1", "82", "2", fields.get("billing_provider_name", ""), "", "", "", "",
+                                  "XX", line["rendering_provider_npi"]))
         # 2420A PRV -- rendering provider taxonomy, box 24I/24J's top half
         # (see claim_schemas.py's rendering_provider_taxonomy). "PE"
         # (Performing) is the PRV01 provider-code for a rendering provider,

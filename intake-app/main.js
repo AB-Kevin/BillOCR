@@ -9,7 +9,7 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, nativeTheme } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { spawn, execFile } = require("child_process");
+const { spawn, execFile, execFileSync } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const { PrefixedGitHubProvider } = require("./updateProvider");
 
@@ -52,6 +52,57 @@ function writeSettings(patch) {
   fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(next, null, 2), "utf-8");
   return next;
+}
+
+// Resolves the actual absolute path of the Python interpreter the user's own
+// login shell would find (the same one a Terminal-launched `npm start` gets),
+// rather than trusting a bare "python3"/"python" name resolved through
+// whatever PATH this process happens to inherit. A packaged app launched from
+// Finder/Dock/Start Menu is started by Launch Services (mac) or the shell
+// integration (Windows), neither of which sources .zprofile/.zshrc/
+// .bash_profile -- so pyenv shims, conda envs, and Homebrew installs a
+// developer's Terminal sees are invisible to it. That's what let this exact
+// bug through: bare "python3" silently resolved to a *different* interpreter
+// in the packaged app than in dev, one that never had `pip install -r
+// requirements.txt` run against it. Only ever replaces the untouched default
+// -- a path the user has deliberately typed into Settings is never
+// second-guessed or overwritten.
+function resolveDefaultPythonPath() {
+  const bareDefault = DEFAULT_SETTINGS.pythonPath; // "python3", or "python" on win32
+  if (IS_WINDOWS) return bareDefault; // Windows' own PATH/Store-Python quirks are out of scope for this fix.
+
+  // Ask the user's actual login shell to resolve the command -- "-ilc" makes
+  // it interactive *and* a login shell, so it sources the same rc files
+  // opening Terminal.app and typing `python3` would (pyenv/conda/nvm-style
+  // shims included), even though this process itself has no controlling
+  // terminal.
+  const loginShell = process.env.SHELL || "/bin/zsh";
+  try {
+    const out = execFileSync(loginShell, ["-ilc", `command -v ${bareDefault}`], {
+      encoding: "utf-8",
+      timeout: 5000,
+    }).trim();
+    if (out && fs.existsSync(out)) return out;
+  } catch {
+    // Login shell resolution can fail for all sorts of reasons (unusual
+    // shell, no rc file, `command -v` finding nothing) -- none of which
+    // should block startup. Fall through to the common-locations probe below.
+  }
+
+  // Common install locations a Terminal's PATH would include but Launch
+  // Services' minimal one might not, checked in the order a Mac user is most
+  // likely to have them.
+  const candidates = [
+    "/opt/homebrew/bin/python3", // Homebrew, Apple Silicon
+    "/usr/local/bin/python3", // Homebrew, Intel
+    path.join(process.env.HOME || "", ".pyenv", "shims", "python3"),
+    "/usr/bin/python3", // Apple's system Python -- last resort, rarely has user-installed packages
+  ];
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+
+  return bareDefault; // nothing found -- fall back to today's PATH-lookup behavior unchanged
 }
 
 // --- Processing history ----------------------------------------------------
@@ -206,6 +257,18 @@ function startPipeline() {
   // build_837.py/build_one.py, which is Review's job) -- so intake doesn't
   // need it to exist before starting, unlike Review's approve action.
   ensureWorkspace(settings.workspaceFolder);
+
+  // A bare command name (e.g. "python3") is resolved by the OS at spawn time,
+  // so there's nothing to check here up front -- an ENOENT from spawn()
+  // itself (handled below via proc.on("error")) is as specific as it gets.
+  // But an *absolute* path -- either one resolveDefaultPythonPath() resolved
+  // at startup, or one the user typed into Settings -- can be checked right
+  // now, and a stale one (Homebrew Python reinstalled elsewhere, a pyenv
+  // version removed, a typo) deserves a clearer message than a raw ENOENT
+  // buried in the log pane.
+  if (path.isAbsolute(settings.pythonPath) && !fs.existsSync(settings.pythonPath)) {
+    throw new Error(`Configured Python path not found: ${settings.pythonPath}. Check Settings → Python path.`);
+  }
 
   const args = [
     path.join(PIPELINE_DIR, "extract_claim_fields.py"),
@@ -566,6 +629,17 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    // Only ever replaces the untouched default ("python3"/"python") -- once
+    // resolved it's persisted as an absolute path, so this runs at most once
+    // per install and a path the user later types into Settings is never
+    // second-guessed. See resolveDefaultPythonPath's own comment for why this
+    // matters specifically for a packaged (Finder/Dock-launched) build.
+    const settings = readSettings();
+    if (settings.pythonPath === DEFAULT_SETTINGS.pythonPath) {
+      const resolved = resolveDefaultPythonPath();
+      if (resolved !== settings.pythonPath) writeSettings({ pythonPath: resolved });
+    }
+
     createWindow();
     createTray();
     app.setLoginItemSettings({ openAtLogin: readSettings().openAtLogin });

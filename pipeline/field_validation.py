@@ -188,6 +188,22 @@ def _validate_cms1500(fields: dict) -> dict:
     if facility_npi and not is_valid_npi(facility_npi):
         _flag(flags, "service_facility_npi", "failed NPI checksum")
 
+    # x12_837.py's NM1*82 (2420A, rendering provider) needs box 31's own
+    # name to go with a line's box 24J NPI -- without it, the built claim
+    # silently falls back to box 33's billing name instead, which is
+    # exactly the mismatch (box 31 shown to a clearinghouse doesn't match
+    # box 24J's NPI) this whole field exists to prevent. Flagged here, once
+    # per claim, rather than per line -- box 31 is one name per claim like
+    # referring_provider_last_name, not one per service line.
+    has_rendering_npi = any(
+        isinstance(line, dict) and line.get("rendering_provider_npi")
+        for line in fields.get("service_lines") or []
+    )
+    if has_rendering_npi and not fields.get("rendering_provider_last_name"):
+        _flag(flags, "rendering_provider_last_name",
+              "box 31 has no name captured, but a service line has a rendering provider NPI (box 24J) -- "
+              "the built claim will fall back to box 33's billing name here instead of box 31's own name")
+
     for code in fields.get("diagnosis_codes") or []:
         if code and not ICD10_RE.match(str(code)):
             _flag(flags, "diagnosis_codes", f"'{code}' doesn't look like a valid ICD-10 code shape")
